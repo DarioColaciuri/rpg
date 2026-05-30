@@ -174,7 +174,12 @@ export default class GameScene extends Phaser.Scene {
   _addPlayerColliders(player) {
     if (!player.hasPhysics) return;
     this._solidCollider = this.physics.add.collider(player, this.solidGroup);
-    this.physics.add.collider(player, this.remoteGroup);
+    const isSafe = MAPS[this.currentMap]?.safe ?? true;
+    if (this._remoteCollider) {
+      this.physics.world.removeCollider(this._remoteCollider);
+    }
+    this._remoteCollider = this.physics.add.collider(player, this.remoteGroup);
+    if (isSafe) this._remoteCollider.active = false;
     if (this.boundaryGroup) {
       this.physics.add.collider(player, this.boundaryGroup,
         () => {
