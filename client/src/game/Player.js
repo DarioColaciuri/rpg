@@ -37,6 +37,8 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this.droppingThrough = false;
     this.animPrefix = className;
     this.animState = 'idle';
+    this._targetX = null;
+    this._targetY = null;
     this._visualCfg = CLASS_VISUAL[className] || CLASS_VISUAL.warrior;
 
     this._visual = scene.add.sprite(x, y + this._visualCfg.offsetY, spriteKey);
@@ -188,13 +190,22 @@ export default class Player extends Phaser.GameObjects.Sprite {
   updatePosition(px, py, instant = false) {
     this.confirmedPx = px;
     this.confirmedPy = py;
-    if (!this.hasPhysics || instant) {
+    if (instant || this.hasPhysics) {
       this.x = px;
       this.y = py;
+      this._targetX = null;
+      this._targetY = null;
       if (this.hasPhysics) {
         this.body.setVelocity(0, 0);
         this.body.updateFromGameObject();
       }
+    } else {
+      if (this._targetX === null) {
+        this.x = px;
+        this.y = py;
+      }
+      this._targetX = px;
+      this._targetY = py;
     }
   }
 
@@ -243,6 +254,12 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
   preUpdate(time, delta) {
     super.preUpdate(time, delta);
+
+    if (!this.hasPhysics && this._targetX !== null && delta > 0) {
+      const f = 1 - Math.exp(-delta / 50);
+      this.x += (this._targetX - this.x) * f;
+      this.y += (this._targetY - this.y) * f;
+    }
 
     const cfg = this._visualCfg;
     const visualOffsetY = this.isCrouching ? 0 : cfg.offsetY;
