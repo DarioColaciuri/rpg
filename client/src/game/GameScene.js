@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { MAPS, TILE_SIZE, TILE_AIR, TILE_SOLID, TILE_PLATFORM, MAP_COLS, MAP_ROWS, checkMapTransition } from './maps.js';
 import Player from './Player.js';
+import { preloadSpritesheets, createAnimations } from './animations.js';
 import { gameSocket } from '../network/websocket.js';
 
 const PLAYER_W = 32;
@@ -16,6 +17,7 @@ export default class GameScene extends Phaser.Scene {
     this.currentMap = null;
     this.cursors = null;
     this.ctrlKey = null;
+    this.shiftKey = null;
     this.onError = null;
     this.solidGroup = null;
     this.boundaryGroup = null;
@@ -36,9 +38,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   preload() {
+    preloadSpritesheets(this);
   }
 
   create() {
+    createAnimations(this);
+
     const KEY_W = Phaser.Input.Keyboard.KeyCodes.W;
     const KEY_A = Phaser.Input.Keyboard.KeyCodes.A;
     const KEY_S = Phaser.Input.Keyboard.KeyCodes.S;
@@ -47,6 +52,7 @@ export default class GameScene extends Phaser.Scene {
       w: KEY_W, a: KEY_A, s: KEY_S, d: KEY_D,
     }, false);
     this.ctrlKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.CTRL, false);
+    this.shiftKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT, false);
     this.input.keyboard.clearCaptures();
 
     this._showRuler = false;
@@ -165,12 +171,12 @@ export default class GameScene extends Phaser.Scene {
 
   _addPlayerColliders(player) {
     if (!player.hasPhysics) return;
-    this._solidCollider = this.physics.add.collider(player.rect, this.solidGroup);
+    this._solidCollider = this.physics.add.collider(player, this.solidGroup);
     if (this.boundaryGroup) {
-      this.physics.add.collider(player.rect, this.boundaryGroup,
+      this.physics.add.collider(player, this.boundaryGroup,
         () => {
           if (this._transitioning) return;
-          const transition = checkMapTransition(this.currentMap, player.rect.x, player.rect.y);
+          const transition = checkMapTransition(this.currentMap, player.x, player.y);
           if (transition) {
             this._transitioning = true;
             gameSocket.send('move', { px: transition.spawnX, py: transition.spawnY, transitionTo: transition.map });
@@ -315,7 +321,7 @@ export default class GameScene extends Phaser.Scene {
         break;
       }
       case 'map_change': {
-this._transitioning = false;
+        this._transitioning = false;
         this.loadMap(msg.map);
         for (const [, sprite] of this.playerSprites) sprite.destroy();
         this.playerSprites.clear();
@@ -327,7 +333,7 @@ this._transitioning = false;
 
   bringMyPlayerToTop() {
     if (this.myId && this.playerSprites.has(this.myId)) {
-      this.playerSprites.get(this.myId).setDepth(10);
+      this.playerSprites.get(this.myId).bringToTop();
     }
   }
 
@@ -367,6 +373,8 @@ this._transitioning = false;
       gameSocket.send('attack');
     }
 
+    player.isRunning = this.shiftKey.isDown;
+
     if (this.cursors.a.isDown) {
       player.moveLeft();
     } else if (this.cursors.d.isDown) {
@@ -389,39 +397,37 @@ this._transitioning = false;
       if (player.isCrouching) player.standUp();
     }
 
-    for (const [, p] of this.playerSprites) {
-      p.preUpdate();
-    }
+    player.updateAnimation();
 
     const mapData = MAPS[this.currentMap];
     if (mapData) {
       const mapW = mapData.width * TILE_SIZE;
       const mapH = mapData.height * TILE_SIZE;
-      const px = player.rect.x;
-      const py = player.rect.y;
+      const px = player.x;
+      const py = player.y;
 
       if (this.currentMap !== 'forest' && px < PLAYER_W / 2) {
-        player.rect.x = PLAYER_W / 2;
-        if (player.hasPhysics) player.rect.body.setVelocityX(0);
+        player.x = PLAYER_W / 2;
+        if (player.hasPhysics) player.body.setVelocityX(0);
       }
       if (this.currentMap !== 'city' && px > mapW - PLAYER_W / 2) {
-        player.rect.x = mapW - PLAYER_W / 2;
-        if (player.hasPhysics) player.rect.body.setVelocityX(0);
+        player.x = mapW - PLAYER_W / 2;
+        if (player.hasPhysics) player.body.setVelocityX(0);
       }
       if (py < PLAYER_H / 2) {
-        player.rect.y = PLAYER_H / 2;
-        if (player.hasPhysics) player.rect.body.setVelocityY(0);
+        player.y = PLAYER_H / 2;
+        if (player.hasPhysics) player.body.setVelocityY(0);
       }
       if (py > mapH - PLAYER_H / 2) {
-        player.rect.y = mapH - PLAYER_H / 2;
-        if (player.hasPhysics) player.rect.body.setVelocityY(0);
+        player.y = mapH - PLAYER_H / 2;
+        if (player.hasPhysics) player.body.setVelocityY(0);
       }
     }
 
     const now = Date.now();
     if (now - this._lastSyncTime > SYNC_INTERVAL) {
-      const px = Math.round(player.rect.x);
-      const py = Math.round(player.rect.y);
+      const px = Math.round(player.x);
+      const py = Math.round(player.y);
       const dx = Math.abs(px - this._lastSentX);
       const dy = Math.abs(py - this._lastSentY);
       if (dx > SYNC_MIN_DIST || dy > SYNC_MIN_DIST) {
@@ -438,9 +444,8 @@ this._transitioning = false;
       this._movePending = null;
     }
 
-    const followOffsetY = player.isCrouching ? 16 : 32;
-    this.cameras.main.startFollow(player.rect, true, 0.08, 0.08);
-    this.cameras.main.setFollowOffset(0, followOffsetY);
+    this.cameras.main.startFollow(player, true, 0.08, 0.08);
+    this.cameras.main.setFollowOffset(0, 32);
 
     if (this._showRuler) {
       const pointer = this.input.activePointer;

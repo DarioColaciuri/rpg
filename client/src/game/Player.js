@@ -2,39 +2,62 @@ import Phaser from 'phaser';
 
 const PLAYER_W = 32;
 const PLAYER_H = 64;
+const DISPLAY_W = 128;
+const DISPLAY_H = 128;
 const CROUCH_H = 32;
+const DISPLAY_CROUCH_H = 64;
 const MOVE_SPEED = 200;
+const RUN_SPEED = 400;
 const JUMP_VEL = -420;
 const DRAG_X = 800;
 const MAX_VEL_Y = 800;
 const DROP_THROUGH_MS = 250;
+const VISUAL_OFFSET_Y = -32;
 
-export default class Player {
+export default class Player extends Phaser.GameObjects.Sprite {
   constructor(scene, x, y, playerData, hasPhysics = false) {
-    this.scene = scene;
+    const className = (playerData.class === 'MAGE' || playerData.class === 'WIZARD') ? 'wizard' : 'warrior';
+    const spriteKey = className + '_idle';
+
+    super(scene, x, y, spriteKey);
+
+    scene.add.existing(this);
+    this.setVisible(false);
+
+    this._visual = scene.add.sprite(x, y + VISUAL_OFFSET_Y, spriteKey);
+    this._visual.setDepth(5);
+    this._visual.setDisplaySize(DISPLAY_W, DISPLAY_H);
+
     this.playerId = playerData.id;
-    this.playerClass = playerData.class || 'WARRIOR';
+    this.playerClass = className;
     this.playerData = playerData;
     this.hasPhysics = hasPhysics;
     this.isCrouching = false;
+    this.isRunning = false;
     this.droppingThrough = false;
+    this.animPrefix = className;
 
     this.confirmedPx = playerData.px ?? x;
     this.confirmedPy = playerData.py ?? y;
 
-    const color = hasPhysics ? 0xff0000 : 0xff6644;
-    this.rect = scene.add.rectangle(x, y, PLAYER_W, PLAYER_H, color);
-    this.rect.setDepth(5);
-
     if (hasPhysics) {
-      scene.physics.add.existing(this.rect);
-      this.rect.body.setSize(PLAYER_W, PLAYER_H);
-      this.rect.body.setMaxVelocityX(300);
-      this.rect.body.setMaxVelocityY(MAX_VEL_Y);
-      this.rect.body.setDragX(DRAG_X);
-      this.rect.body.setAllowGravity(true);
-      this.rect.body.setCollideWorldBounds(false);
-      this.rect.body.updateFromGameObject();
+      scene.physics.add.existing(this);
+      this.body.setSize(PLAYER_W, PLAYER_H);
+      this.body.setMaxVelocityX(600);
+      this.body.setMaxVelocityY(MAX_VEL_Y);
+      this.body.setDragX(DRAG_X);
+      this.body.setAllowGravity(true);
+      this.body.setCollideWorldBounds(false);
+      this.body.updateFromGameObject();
+
+      this._hitboxGfx = scene.add.graphics().setDepth(15);
+      this._hitboxLabel = scene.add.text(x, y, '', {
+        fontSize: '8px',
+        fontFamily: 'monospace',
+        color: '#ff4444',
+        stroke: '#000000',
+        strokeThickness: 2,
+      }).setOrigin(0, 1).setDepth(16);
     }
 
     const fontStyle = {
@@ -69,37 +92,48 @@ export default class Player {
     }
   }
 
-  get x() { return this.rect.x; }
-  set x(v) { this.rect.x = v; }
-  get y() { return this.rect.y; }
-  set y(v) { this.rect.y = v; }
-
-  setDepth(d) { this.rect.setDepth(d); }
+  get x() { return super.x; }
+  set x(v) { super.x = v; }
+  get y() { return super.y; }
+  set y(v) { super.y = v; }
 
   moveLeft() {
-    if (this.hasPhysics) this.rect.body.setVelocityX(-MOVE_SPEED);
+    if (this.hasPhysics) {
+      const speed = this.isRunning ? RUN_SPEED : MOVE_SPEED;
+      this.body.setVelocityX(-speed);
+      this._visual.setFlipX(true);
+    }
   }
 
   moveRight() {
-    if (this.hasPhysics) this.rect.body.setVelocityX(MOVE_SPEED);
+    if (this.hasPhysics) {
+      const speed = this.isRunning ? RUN_SPEED : MOVE_SPEED;
+      this.body.setVelocityX(speed);
+      this._visual.setFlipX(false);
+    }
   }
 
   stopX() {
-    if (this.hasPhysics) this.rect.body.setVelocityX(0);
+    if (this.hasPhysics) this.body.setVelocityX(0);
+  }
+
+  bringToTop() {
+    this.setDepth(10);
+    if (this._visual) this._visual.setDepth(10);
   }
 
   jump() {
     if (!this.hasPhysics) return;
-    if (this.rect.body.touching.down || this.rect.body.blocked.down) {
-      this.rect.body.setVelocityY(JUMP_VEL);
+    if (this.body.touching.down || this.body.blocked.down) {
+      this.body.setVelocityY(JUMP_VEL);
     }
   }
 
   dropThrough() {
-    if (!this.rect.body.touching.down && !this.rect.body.blocked.down) return;
+    if (!this.body.touching.down && !this.body.blocked.down) return;
     this.droppingThrough = true;
-    this.rect.y += 2;
-    this.rect.body.setVelocityY(150);
+    this.y += 2;
+    this.body.setVelocityY(150);
     if (this.scene._solidCollider) {
       this.scene._solidCollider.active = false;
       this.scene.time.delayedCall(DROP_THROUGH_MS, () => {
@@ -114,43 +148,45 @@ export default class Player {
   crouch() {
     if (this.isCrouching) return;
     this.isCrouching = true;
-    this.rect.setSize(PLAYER_W, CROUCH_H);
-    this.rect.setFillStyle(0xcc0000);
-    if (this.hasPhysics) {
-      this.rect.body.setSize(PLAYER_W, CROUCH_H);
-      this.rect.body.updateFromGameObject();
-    }
+    this._visual.setDisplaySize(DISPLAY_W, DISPLAY_CROUCH_H);
   }
 
   standUp() {
     if (!this.isCrouching) return;
     this.isCrouching = false;
-    this.rect.setSize(PLAYER_W, PLAYER_H);
-    this.rect.setFillStyle(0xff0000);
-    if (this.hasPhysics) {
-      this.rect.body.setSize(PLAYER_W, PLAYER_H);
-      this.rect.body.updateFromGameObject();
-    }
+    this._visual.setDisplaySize(DISPLAY_W, DISPLAY_H);
   }
 
-  canStandUp() {
-    if (!this.isCrouching) return true;
-    if (!this.hasPhysics) return true;
-    const headY = this.rect.y - this.rect.body.height / 2;
-    const tileAbove = Math.floor(headY / 32);
-    const tileX = Math.floor(this.rect.x / 32);
-    return true;
+  updateAnimation() {
+    if (!this.hasPhysics) return;
+    if (!this._visual.anims) return;
+
+    let state;
+    const onGround = this.body.touching.down || this.body.blocked.down;
+
+    if (!onGround) {
+      state = 'jump';
+    } else if (Math.abs(this.body.velocity.x) > 10) {
+      state = this.isRunning ? 'run' : 'walk';
+    } else {
+      state = 'idle';
+    }
+
+    const key = this.animPrefix + '_' + state;
+    if (!this._visual.anims.currentAnim || this._visual.anims.currentAnim.key !== key) {
+      this._visual.play(key);
+    }
   }
 
   updatePosition(px, py, instant = false) {
     this.confirmedPx = px;
     this.confirmedPy = py;
     if (!this.hasPhysics || instant) {
-      this.rect.x = px;
-      this.rect.y = py;
+      this.x = px;
+      this.y = py;
       if (this.hasPhysics) {
-        this.rect.body.setVelocity(0, 0);
-        this.rect.body.updateFromGameObject();
+        this.body.setVelocity(0, 0);
+        this.body.updateFromGameObject();
       }
     }
   }
@@ -178,10 +214,15 @@ export default class Player {
     });
   }
 
-  preUpdate() {
-    const px = this.rect.x;
-    const py = this.rect.y;
-    const h = this.isCrouching ? CROUCH_H : PLAYER_H;
+  preUpdate(time, delta) {
+    super.preUpdate(time, delta);
+
+    this._visual.x = this.x;
+    this._visual.y = this.y + VISUAL_OFFSET_Y;
+
+    const px = this.x;
+    const py = this.y;
+    const h = this.isCrouching ? DISPLAY_CROUCH_H : DISPLAY_H;
 
     this.nameText.setPosition(px, py - h / 2 - 6);
 
@@ -195,18 +236,39 @@ export default class Player {
     this.hpBar.fillRect(px - PLAYER_W / 2, barY, PLAYER_W * ratio, 3);
 
     this.bubbleText.setPosition(px, py - h / 2 - 14);
+
+    if (this._hitboxGfx && this.hasPhysics && this.body) {
+      this._hitboxGfx.clear();
+      this._hitboxGfx.fillStyle(0xff0000, 0.25);
+      this._hitboxGfx.lineStyle(1, 0xff0000, 0.6);
+      this._hitboxGfx.fillRect(
+        this.x - PLAYER_W / 2, this.y - PLAYER_H / 2,
+        PLAYER_W, PLAYER_H
+      );
+      this._hitboxGfx.strokeRect(
+        this.x - PLAYER_W / 2, this.y - PLAYER_H / 2,
+        PLAYER_W, PLAYER_H
+      );
+
+      this._hitboxLabel.setPosition(
+        this.x + PLAYER_W / 2 + 3,
+        this.y + PLAYER_H / 2
+      );
+      this._hitboxLabel.setText(`${PLAYER_W}x${PLAYER_H}`);
+    }
   }
 
   destroy() {
-    if (this.rect) {
-      if (this.hasPhysics && this.rect.body) {
-        this.rect.body.enable = false;
-      }
-      this.rect.destroy();
+    if (this._visual) this._visual.destroy();
+    if (this._hitboxGfx) this._hitboxGfx.destroy();
+    if (this._hitboxLabel) this._hitboxLabel.destroy();
+    if (this.hasPhysics && this.body) {
+      this.body.enable = false;
     }
     if (this.nameText) this.nameText.destroy();
     if (this.hpBarBg) this.hpBarBg.destroy();
     if (this.hpBar) this.hpBar.destroy();
     if (this.bubbleText) this.bubbleText.destroy();
+    super.destroy();
   }
 }
