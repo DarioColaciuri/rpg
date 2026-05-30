@@ -1,0 +1,525 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #0a0a1a;
+  color: #e0e0e0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  overflow: hidden;
+}
+
+.app {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Auth Screen */
+.auth-screen, .select-screen, .create-screen {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #0a0a1a 0%, #1a1a3e 100%);
+}
+
+.auth-card, .select-card, .create-card {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 32px;
+  width: 380px;
+  max-width: 90vw;
+}
+
+.auth-title {
+  font-size: 24px;
+  text-align: center;
+  color: #ffcc44;
+  margin-bottom: 8px;
+}
+
+.auth-subtitle, .select-title, .create-title {
+  font-size: 18px;
+  text-align: center;
+  margin-bottom: 20px;
+  color: #ccc;
+}
+
+.auth-input {
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: #0a0a1a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 14px;
+  outline: none;
+}
+.auth-input:focus {
+  border-color: #ffcc44;
+}
+
+.auth-error {
+  background: #441111;
+  color: #ff6666;
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.auth-btn, .create-btn, .logout-btn {
+  width: 100%;
+  padding: 10px;
+  background: #ffcc44;
+  color: #1a1a2e;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+.auth-btn:disabled, .create-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.auth-btn:hover:not(:disabled), .create-btn:hover:not(:disabled) {
+  background: #ffdd66;
+}
+
+.auth-toggle {
+  width: 100%;
+  padding: 8px;
+  background: transparent;
+  color: #888;
+  border: none;
+  font-size: 13px;
+  cursor: pointer;
+}
+.auth-toggle:hover {
+  color: #ccc;
+}
+
+.logout-btn {
+  background: #444;
+  color: #ccc;
+}
+.logout-btn:hover {
+  background: #555;
+}
+
+/* Character Select */
+.select-email {
+  text-align: center;
+  color: #888;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.select-loading, .char-empty {
+  text-align: center;
+  color: #888;
+  padding: 20px;
+}
+
+.char-list {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-bottom: 16px;
+}
+
+.char-card {
+  background: #0a0a1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 12px;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.char-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.char-card-name {
+  font-size: 15px;
+  font-weight: bold;
+  color: #ffcc44;
+}
+
+.char-card-detail {
+  font-size: 12px;
+  color: #888;
+}
+
+.char-card-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.char-play-btn {
+  padding: 6px 14px;
+  background: #44aa44;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.char-play-btn:hover {
+  background: #55cc55;
+}
+
+.char-delete-btn {
+  padding: 6px 10px;
+  background: #aa4444;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.char-delete-btn:hover {
+  background: #cc5555;
+}
+
+.select-actions {
+  display: flex;
+  gap: 8px;
+}
+.select-actions button {
+  flex: 1;
+}
+
+/* Character Create */
+.create-label {
+  display: block;
+  font-size: 13px;
+  color: #aaa;
+  margin-bottom: 4px;
+  margin-top: 12px;
+}
+
+.create-options {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.opt-btn {
+  flex: 1;
+  padding: 8px;
+  background: #0a0a1a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #ccc;
+  cursor: pointer;
+  font-size: 13px;
+}
+.opt-btn:hover {
+  border-color: #888;
+}
+.opt-active {
+  background: #ffcc44;
+  color: #1a1a2e;
+  border-color: #ffcc44;
+  font-weight: bold;
+}
+
+.create-desc {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 8px;
+}
+
+.create-preview {
+  background: #0a0a1a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 10px;
+  margin: 12px 0;
+  font-size: 13px;
+  color: #aaa;
+  text-align: center;
+}
+
+/* Game Container */
+.game-container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.game-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.game-canvas canvas {
+  display: block;
+}
+
+.game-ui-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.ws-error {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #441111;
+  color: #ff6666;
+  padding: 12px 24px;
+  border-radius: 6px;
+  font-size: 14px;
+  z-index: 100;
+}
+
+/* Stats Bars */
+.stats-bars {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 10px 14px;
+  min-width: 200px;
+  pointer-events: auto;
+}
+
+.stats-loading {
+  color: #888;
+  font-size: 13px;
+}
+
+.stats-header {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.stats-name {
+  font-size: 14px;
+  font-weight: bold;
+  color: #ffcc44;
+}
+
+.stats-level {
+  font-size: 12px;
+  color: #aaa;
+}
+
+.stats-xp {
+  font-size: 11px;
+  color: #888;
+  margin-left: auto;
+}
+
+.stat-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.stat-label {
+  width: 40px;
+  font-size: 11px;
+  color: #aaa;
+  text-align: right;
+}
+
+.stat-bar-bg {
+  flex: 1;
+  height: 10px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.stat-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+.stat-value {
+  width: 55px;
+  font-size: 10px;
+  color: #aaa;
+  text-align: right;
+}
+
+/* Chat */
+.chat-box {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  width: 320px;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid #444;
+  border-radius: 6px;
+  pointer-events: auto;
+}
+
+.chat-log {
+  height: 100px;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.chat-msg {
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.chat-name {
+  color: #ffcc44;
+  font-weight: bold;
+}
+
+.chat-text {
+  color: #ddd;
+}
+
+.chat-input {
+  width: 100%;
+  padding: 8px;
+  background: #0a0a1a;
+  border: none;
+  border-top: 1px solid #444;
+  color: #e0e0e0;
+  font-size: 13px;
+  outline: none;
+}
+.chat-input:focus {
+  background: #111;
+}
+
+.invisible {
+  display: none;
+}
+
+/* Spell Panel */
+.spell-panel {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 10px;
+  min-width: 140px;
+  pointer-events: auto;
+}
+
+.spell-panel-title {
+  font-size: 13px;
+  color: #aaa;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.spell-empty {
+  font-size: 12px;
+  color: #666;
+  text-align: center;
+  padding: 8px;
+}
+
+.spell-btn {
+  width: 100%;
+  padding: 8px;
+  background: #1a1a3e;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #ccc;
+  cursor: pointer;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.spell-btn:hover {
+  border-color: #888;
+}
+.spell-active {
+  background: #442288;
+  border-color: #8844ff;
+  color: #fff;
+}
+
+.spell-info {
+  font-size: 11px;
+  color: #666;
+  text-align: center;
+}
+
+/* Inventory */
+.inventory-panel {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 10px;
+  pointer-events: auto;
+}
+
+.inventory-title {
+  font-size: 13px;
+  color: #aaa;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.inventory-slots {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.inv-slot {
+  width: 36px;
+  height: 36px;
+  background: #0a0a1a;
+  border: 1px solid #333;
+  border-radius: 3px;
+}
+
+/* Leave Button */
+.leave-btn {
+  margin-top: 8px;
+  padding: 6px 12px;
+  background: #aa4444;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  pointer-events: auto;
+  width: 100%;
+}
+.leave-btn:hover {
+  background: #cc5555;
+}

@@ -1,0 +1,453 @@
+import { MAPS, TILE_SIZE, isPixelWalkable, findGroundY } from './maps.js';
+
+const BASE_STATS = {
+  WARRIOR: { hp: 20, mana: 10, stamina: 20 },
+  MAGE: { hp: 10, mana: 30, stamina: 20 },
+};
+const RACE_BONUS = {
+  HUMAN: { hp: 5, mana: 0 },
+  GNOME: { hp: 0, mana: 5 },
+};
+
+const PLAYER_W = 32;
+const PLAYER_H = 64;
+const MOVE_COOLDOWN = 80;
+const MAX_MOVE_DIST = 80;
+
+export function calcStats(charClass, race) {
+  const base = BASE_STATS[charClass];
+  const bonus = RACE_BONUS[race];
+  return {
+    hp: base.hp + bonus.hp,
+    maxHp: base.hp + bonus.hp,
+    mana: base.mana + bonus.mana,
+    maxMana: base.mana + bonus.mana,
+    stamina: base.stamina,
+    maxStamina: base.stamina,
+  };
+}
+
+function tileCenter(tx) {
+  return tx * TILE_SIZE + TILE_SIZE / 2;
+}
+
+export class GameServer {
+  constructor() {
+    this.players = new Map();
+    this.wsToPlayer = new Map();
+    this.startStaminaRegen();
+  }
+
+  startStaminaRegen() {
+    setInterval(() => {
+      for (const [, p] of this.players) {
+        if (p.stamina < p.maxStamina) {
+          p.stamina = Math.min(p.stamina + 1, p.maxStamina);
+        }
+      }
+    }, 1000);
+  }
+
+  playerData(player) {
+    return {
+      id: player.id,
+      name: player.name,
+      class: player.class,
+      race: player.race,
+      sex: player.sex,
+      px: player.px,
+      py: player.py,
+      map: player.map,
+      hp: player.hp,
+      maxHp: player.maxHp,
+      mana: player.mana,
+      maxMana: player.maxMana,
+      stamina: player.stamina,
+      maxStamina: player.maxStamina,
+      level: player.level,
+      xp: player.xp,
+    };
+  }
+
+  getStats(player) {
+    return {
+      name: player.name,
+      class: player.class,
+      race: player.race,
+      sex: player.sex,
+      px: player.px,
+      py: player.py,
+      hp: player.hp,
+      maxHp: player.maxHp,
+      mana: player.mana,
+      maxMana: player.maxMana,
+      stamina: player.stamina,
+      maxStamina: player.maxStamina,
+      food: player.food,
+      drink: player.drink,
+      level: player.level,
+      xp: player.xp,
+    };
+  }
+
+  getPlayersOnMap(mapName, excludeId) {
+    const result = [];
+    for (const [, p] of this.players) {
+      if (p.map === mapName && p.id !== excludeId) {
+        result.push(this.playerData(p));
+      }
+    }
+    return result;
+  }
+
+  findSpawn(mapName) {
+    const map = MAPS[mapName];
+    if (!map) return { px: 80, py: 800 };
+    const { x: sx } = map.spawn;
+    const spawnPx = tileCenter(sx);
+    const spawnPy = findGroundY(mapName, spawnPx);
+    return { px: spawnPx, py: spawnPy };
+  }
+
+  addPlayer(ws, character) {
+    const spawn = this.findSpawn(character.map || 'city');
+    const stats = calcStats(character.class, character.race);
+
+    const player = {
+      id: character.id,
+      userId: character.user_id,
+      name: character.name,
+      class: character.class,
+      race: character.race,
+      sex: character.sex,
+      hp: character.hp ?? stats.hp,
+      maxHp: character.max_hp ?? stats.maxHp,
+      mana: character.mana ?? stats.mana,
+      maxMana: character.max_mana ?? stats.maxMana,
+      stamina: character.stamina ?? stats.maxStamina,
+      maxStamina: character.max_stamina ?? stats.maxStamina,
+      food: character.food ?? 100,
+      drink: character.drink ?? 100,
+      level: character.level ?? 1,
+      xp: character.xp ?? 0,
+      map: character.map || 'city',
+      px: spawn.px,
+      py: spawn.py,
+      lastMoveTime: 0,
+      selectedSpell: null,
+    };
+
+    this.players.set(player.id, player);
+    this.wsToPlayer.set(ws, player.id);
+
+    return player;
+  }
+
+  removePlayer(ws) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return null;
+    const player = this.players.get(playerId);
+    this.players.delete(playerId);
+    this.wsToPlayer.delete(ws);
+    return player;
+  }
+
+  sendTo(ws, msg) {
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify(msg));
+    }
+  }
+
+  broadcastToMap(mapName, msg, excludeWs) {
+    for (const [ws, pid] of this.wsToPlayer) {
+      if (ws === excludeWs) continue;
+      const p = this.players.get(pid);
+      if (p && p.map === mapName) {
+        this.sendTo(ws, msg);
+      }
+    }
+  }
+
+  handleMove(ws, px, py, transitionTo) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const player = this.players.get(playerId);
+    if (!player) return;
+
+    if (typeof px !== 'number' || typeof py !== 'number') return;
+
+    if (transitionTo && MAPS[transitionTo]) {
+      const validTransition =
+        (transitionTo === 'forest' && player.map === 'city') ||
+        (transitionTo === 'city' && player.map === 'forest');
+      if (validTransition) {
+        const oldMap = player.map;
+        player.map = transitionTo;
+        player.px = px;
+        player.py = py;
+        const now = Date.now();
+        player.lastMoveTime = now;
+
+        this.broadcastToMap(oldMap, { type: 'player_left', id: player.id }, ws);
+        this.sendTo(ws, {
+          type: 'map_change',
+          map: player.map,
+          px: player.px,
+          py: player.py,
+          stats: this.getStats(player),
+        });
+        const newMapPlayers = this.getPlayersOnMap(player.map, player.id);
+        this.sendTo(ws, {
+          type: 'world_state',
+          yourId: player.id,
+          map: player.map,
+          players: newMapPlayers,
+          stats: this.getStats(player),
+        });
+        this.broadcastToMap(player.map, { type: 'player_joined', player: this.playerData(player) }, ws);
+        return;
+      }
+    }
+
+    const now = Date.now();
+    if (now - player.lastMoveTime < MOVE_COOLDOWN) return;
+
+    const mapData = MAPS[player.map];
+    if (!mapData) return;
+
+    const mapW = mapData.width * TILE_SIZE;
+    const mapH = mapData.height * TILE_SIZE;
+
+    const dx = Math.abs(px - player.px);
+    const dy = Math.abs(py - player.py);
+    if (dx > MAX_MOVE_DIST || dy > MAX_MOVE_DIST) return;
+
+    if (px - PLAYER_W / 2 < 0 || px + PLAYER_W / 2 > mapW ||
+        py - PLAYER_H / 2 < 0 || py + PLAYER_H / 2 > mapH) {
+      return;
+    }
+
+    if (!isPixelWalkable(player.map, px, py, PLAYER_W, PLAYER_H)) return;
+
+    if (this.isPixelOccupied(player.map, px, py, PLAYER_W, PLAYER_H, player.id)) return;
+
+    player.px = px;
+    player.py = py;
+    player.lastMoveTime = now;
+
+    this.broadcastToMap(player.map, {
+      type: 'player_moved',
+      id: player.id,
+      px: px,
+      py: py,
+    }, ws);
+    this.sendTo(ws, {
+      type: 'player_moved',
+      id: player.id,
+      px: px,
+      py: py,
+    });
+  }
+
+  handleAttack(ws) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const attacker = this.players.get(playerId);
+    if (!attacker) return;
+
+    const map = MAPS[attacker.map];
+    if (!map || map.safe) {
+      this.sendTo(ws, { type: 'error', msg: 'No PvP in safe zone' });
+      return;
+    }
+
+    if (attacker.stamina < 1) {
+      this.sendTo(ws, { type: 'error', msg: 'Not enough stamina' });
+      return;
+    }
+
+    const damage = attacker.class === 'WARRIOR' ? 4 : 1;
+
+    const aTx = Math.floor(attacker.px / TILE_SIZE);
+    const aTy = Math.floor(attacker.py / TILE_SIZE);
+
+    let target = null;
+    for (const [, p] of this.players) {
+      if (p.id === attacker.id) continue;
+      if (p.map !== attacker.map) continue;
+      const tTx = Math.floor(p.px / TILE_SIZE);
+      const tTy = Math.floor(p.py / TILE_SIZE);
+      const dx = Math.abs(tTx - aTx);
+      const dy = Math.abs(tTy - aTy);
+      if (dx <= 1 && dy <= 1 && !(dx === 0 && dy === 0)) {
+        target = p;
+        break;
+      }
+    }
+
+    if (!target) {
+      this.sendTo(ws, { type: 'error', msg: 'No target nearby' });
+      return;
+    }
+
+    attacker.stamina -= 1;
+    target.hp = Math.max(0, target.hp - damage);
+
+    const msg = {
+      type: 'player_attacked',
+      attackerId: attacker.id,
+      attackerName: attacker.name,
+      targetId: target.id,
+      targetName: target.name,
+      damage,
+      targetHp: target.hp,
+    };
+    this.broadcastToMap(attacker.map, msg, null);
+    this.sendTo(ws, { type: 'stats_update', ...this.getStats(attacker) });
+
+    if (target.hp <= 0) {
+      const spawn = this.findSpawn(target.map);
+      target.px = spawn.px;
+      target.py = spawn.py;
+      target.hp = target.maxHp;
+      this.broadcastToMap(target.map, {
+        type: 'player_respawned',
+        id: target.id,
+        px: target.px,
+        py: target.py,
+        hp: target.hp,
+      });
+      const targetWs = this.getWsByPlayerId(target.id);
+      if (targetWs) {
+        this.sendTo(targetWs, { type: 'stats_update', ...this.getStats(target) });
+        this.sendTo(targetWs, {
+          type: 'player_moved',
+          id: target.id,
+          px: target.px,
+          py: target.py,
+        });
+      }
+    }
+  }
+
+  isPixelOccupied(mapName, px, py, w, h, excludeId) {
+    for (const [, p] of this.players) {
+      if (p.id === excludeId) continue;
+      if (p.map !== mapName) continue;
+      if (Math.abs(p.px - px) < w && Math.abs(p.py - py) < h) return true;
+    }
+    return false;
+  }
+
+  getWsByPlayerId(playerId) {
+    for (const [ws, pid] of this.wsToPlayer) {
+      if (pid === playerId) return ws;
+    }
+    return null;
+  }
+
+  handleCastSpell(ws, targetPlayerId) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const caster = this.players.get(playerId);
+    if (!caster) return;
+
+    if (caster.class !== 'MAGE') {
+      this.sendTo(ws, { type: 'error', msg: 'Only mages can cast spells' });
+      return;
+    }
+
+    const map = MAPS[caster.map];
+    if (!map || map.safe) {
+      this.sendTo(ws, { type: 'error', msg: 'No PvP in safe zone' });
+      return;
+    }
+
+    if (caster.stamina < 1) {
+      this.sendTo(ws, { type: 'error', msg: 'Not enough stamina' });
+      return;
+    }
+
+    if (!targetPlayerId) {
+      this.sendTo(ws, { type: 'error', msg: 'Only on characters' });
+      return;
+    }
+
+    const target = this.players.get(targetPlayerId);
+    if (!target || target.id === caster.id) {
+      this.sendTo(ws, { type: 'error', msg: 'Only on characters' });
+      return;
+    }
+
+    if (target.map !== caster.map) {
+      this.sendTo(ws, { type: 'error', msg: 'Target not on this map' });
+      return;
+    }
+
+    const cTx = Math.floor(caster.px / TILE_SIZE);
+    const cTy = Math.floor(caster.py / TILE_SIZE);
+    const tTx = Math.floor(target.px / TILE_SIZE);
+    const tTy = Math.floor(target.py / TILE_SIZE);
+    const dist = Math.abs(tTx - cTx) + Math.abs(tTy - cTy);
+    if (dist > 8) {
+      this.sendTo(ws, { type: 'error', msg: 'Target too far' });
+      return;
+    }
+
+    caster.stamina -= 1;
+    target.hp = Math.max(0, target.hp - 3);
+
+    const msg = {
+      type: 'spell_cast',
+      casterId: caster.id,
+      casterName: caster.name,
+      targetId: target.id,
+      targetName: target.name,
+      damage: 3,
+      targetHp: target.hp,
+    };
+    this.broadcastToMap(caster.map, msg, null);
+    this.sendTo(ws, { type: 'stats_update', ...this.getStats(caster) });
+
+    if (target.hp <= 0) {
+      const spawn = this.findSpawn(target.map);
+      target.px = spawn.px;
+      target.py = spawn.py;
+      target.hp = target.maxHp;
+      this.broadcastToMap(target.map, {
+        type: 'player_respawned',
+        id: target.id,
+        px: target.px,
+        py: target.py,
+        hp: target.hp,
+      });
+      const targetWs = this.getWsByPlayerId(target.id);
+      if (targetWs) {
+        this.sendTo(targetWs, { type: 'stats_update', ...this.getStats(target) });
+        this.sendTo(targetWs, {
+          type: 'player_moved',
+          id: target.id,
+          px: target.px,
+          py: target.py,
+        });
+      }
+    }
+  }
+
+  handleChat(ws, text) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const player = this.players.get(playerId);
+    if (!player) return;
+
+    if (!text || text.trim().length === 0) return;
+    if (text.length > 200) text = text.slice(0, 200);
+
+    this.broadcastToMap(player.map, {
+      type: 'chat_message',
+      playerId: player.id,
+      name: player.name,
+      text: text.trim(),
+    }, null);
+  }
+}
