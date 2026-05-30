@@ -217,7 +217,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
   preUpdate(time, delta) {
     super.preUpdate(time, delta);
 
-    this._visual.x = this.x;
+    this._visual.x = this.x + (this._visual.flipX ? -32 : 32);
     this._visual.y = this.y + VISUAL_OFFSET_Y;
 
     const px = this.x;
