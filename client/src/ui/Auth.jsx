@@ -37,7 +37,7 @@ export default function Auth({ onAuth }) {
   return (
     <div className="auth-screen">
       <div className="auth-card">
-        <h1 className="auth-title">Argentum Online</h1>
+        <h1 className="auth-title">RPG</h1>
         <h2 className="auth-subtitle">{isLogin ? 'Login' : 'Register'}</h2>
         <form onSubmit={handleSubmit}>
           <input
