@@ -15,7 +15,7 @@ const DROP_THROUGH_MS = 250;
 
 const CLASS_VISUAL = {
   warrior: { offsetX: 32, offsetY: -32 },
-  wizard:  { offsetX: 32, offsetY: -32 },
+  wizard:  { offsetX: 0, offsetY: -32, idleOffsetX: 16, jumpOffsetX: 16 },
 };
 
 export default class Player extends Phaser.GameObjects.Sprite {
@@ -224,7 +224,14 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
     const cfg = this._visualCfg;
     const visualOffsetY = this.isCrouching ? 0 : cfg.offsetY;
-    this._visual.x = this.x + (this._visual.flipX ? -cfg.offsetX : cfg.offsetX);
+    const isIdle = this._visual.anims && this._visual.anims.currentAnim
+      && this._visual.anims.currentAnim.key.endsWith('_idle');
+    const isJump = this._visual.anims && this._visual.anims.currentAnim
+      && this._visual.anims.currentAnim.key.endsWith('_jump');
+    let offsetX = cfg.offsetX;
+    if (isIdle && cfg.idleOffsetX != null) offsetX = cfg.idleOffsetX;
+    if (isJump && cfg.jumpOffsetX != null) offsetX = cfg.jumpOffsetX;
+    this._visual.x = this.x + (this._visual.flipX ? -offsetX : offsetX);
     this._visual.y = this.y + visualOffsetY;
 
     const px = this.x;
