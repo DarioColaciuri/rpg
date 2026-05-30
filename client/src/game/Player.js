@@ -12,7 +12,11 @@ const JUMP_VEL = -420;
 const DRAG_X = 800;
 const MAX_VEL_Y = 800;
 const DROP_THROUGH_MS = 250;
-const VISUAL_OFFSET_Y = -32;
+
+const CLASS_VISUAL = {
+  warrior: { offsetX: 32, offsetY: -32 },
+  wizard:  { offsetX: 32, offsetY: -32 },
+};
 
 export default class Player extends Phaser.GameObjects.Sprite {
   constructor(scene, x, y, playerData, hasPhysics = false) {
@@ -24,10 +28,6 @@ export default class Player extends Phaser.GameObjects.Sprite {
     scene.add.existing(this);
     this.setVisible(false);
 
-    this._visual = scene.add.sprite(x, y + VISUAL_OFFSET_Y, spriteKey);
-    this._visual.setDepth(5);
-    this._visual.setDisplaySize(DISPLAY_W, DISPLAY_H);
-
     this.playerId = playerData.id;
     this.playerClass = className;
     this.playerData = playerData;
@@ -36,6 +36,11 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this.isRunning = false;
     this.droppingThrough = false;
     this.animPrefix = className;
+    this._visualCfg = CLASS_VISUAL[className] || CLASS_VISUAL.warrior;
+
+    this._visual = scene.add.sprite(x, y + this._visualCfg.offsetY, spriteKey);
+    this._visual.setDepth(5);
+    this._visual.setDisplaySize(DISPLAY_W, DISPLAY_H);
 
     this.confirmedPx = playerData.px ?? x;
     this.confirmedPy = playerData.py ?? y;
@@ -217,8 +222,10 @@ export default class Player extends Phaser.GameObjects.Sprite {
   preUpdate(time, delta) {
     super.preUpdate(time, delta);
 
-    this._visual.x = this.x + (this._visual.flipX ? -32 : 32);
-    this._visual.y = this.y + VISUAL_OFFSET_Y;
+    const cfg = this._visualCfg;
+    const visualOffsetY = this.isCrouching ? 0 : cfg.offsetY;
+    this._visual.x = this.x + (this._visual.flipX ? -cfg.offsetX : cfg.offsetX);
+    this._visual.y = this.y + visualOffsetY;
 
     const px = this.x;
     const py = this.y;
