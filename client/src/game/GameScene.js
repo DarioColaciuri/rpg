@@ -55,6 +55,8 @@ export default class GameScene extends Phaser.Scene {
     this.shiftKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT, false);
     this.input.keyboard.clearCaptures();
 
+    this.remoteGroup = this.add.group();
+
     this._showRuler = false;
     this._rulerKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
     this._rulerText = this.add.text(0, 0, '', {
@@ -172,6 +174,7 @@ export default class GameScene extends Phaser.Scene {
   _addPlayerColliders(player) {
     if (!player.hasPhysics) return;
     this._solidCollider = this.physics.add.collider(player, this.solidGroup);
+    this.physics.add.collider(player, this.remoteGroup);
     if (this.boundaryGroup) {
       this.physics.add.collider(player, this.boundaryGroup,
         () => {
@@ -212,6 +215,7 @@ export default class GameScene extends Phaser.Scene {
             } else {
               const newPlayer = new Player(this, p.px, p.py, p, false);
               this.playerSprites.set(p.id, newPlayer);
+              this.remoteGroup.add(newPlayer);
               newPlayer.updateRemoteState(p.flipX, p.animState, p.isCrouching);
             }
           }
@@ -249,6 +253,7 @@ export default class GameScene extends Phaser.Scene {
         if (!this.playerSprites.has(p.id)) {
           const newPlayer = new Player(this, p.px, p.py, p, false);
           this.playerSprites.set(p.id, newPlayer);
+          this.remoteGroup.add(newPlayer);
           newPlayer.updateRemoteState(p.flipX, p.animState, p.isCrouching);
           this.bringMyPlayerToTop();
         }

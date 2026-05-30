@@ -66,6 +66,12 @@ export default class Player extends Phaser.GameObjects.Sprite {
         stroke: '#000000',
         strokeThickness: 2,
       }).setOrigin(0, 1).setDepth(16);
+    } else {
+      scene.physics.add.existing(this, false);
+      this.body.setSize(PLAYER_W, PLAYER_H);
+      this.body.setImmovable(true);
+      this.body.setAllowGravity(false);
+      this.body.updateFromGameObject();
     }
 
     const fontStyle = {
@@ -259,6 +265,10 @@ export default class Player extends Phaser.GameObjects.Sprite {
       const f = 1 - Math.exp(-delta / 50);
       this.x += (this._targetX - this.x) * f;
       this.y += (this._targetY - this.y) * f;
+    }
+
+    if (!this.hasPhysics && this.body) {
+      this.body.updateFromGameObject();
     }
 
     const cfg = this._visualCfg;

@@ -112,9 +112,22 @@ export class GameServer {
     return { px: spawnPx, py: spawnPy };
   }
 
-  addPlayer(ws, character) {
-    const spawn = this.findSpawn(character.map || 'city');
+  addPlayer(ws, character, savedPx = null, savedPy = null, savedMap = null) {
     const stats = calcStats(character.class, character.race);
+
+    const spawn = this.findSpawn(character.map || 'city');
+    let useMap = character.map || 'city';
+    let usePx = spawn.px;
+    let usePy = spawn.py;
+
+    if (savedPx != null && savedPy != null && savedMap && MAPS[savedMap]) {
+      if (isPixelWalkable(savedMap, savedPx, savedPy, PLAYER_W, PLAYER_H) &&
+          !this.isPixelOccupied(savedMap, savedPx, savedPy, PLAYER_W, PLAYER_H, character.id)) {
+        useMap = savedMap;
+        usePx = savedPx;
+        usePy = savedPy;
+      }
+    }
 
     const player = {
       id: character.id,
@@ -133,9 +146,9 @@ export class GameServer {
       drink: character.drink ?? 100,
       level: character.level ?? 1,
       xp: character.xp ?? 0,
-      map: character.map || 'city',
-      px: spawn.px,
-      py: spawn.py,
+      map: useMap,
+      px: usePx,
+      py: usePy,
       lastMoveTime: 0,
       selectedSpell: null,
     };

@@ -77,7 +77,12 @@ wss.on('connection', (ws) => {
         return;
       }
 
-      const player = gameServer.addPlayer(ws, character);
+      const hasSavedPos = character.px != null && character.py != null && character.map;
+      const player = gameServer.addPlayer(ws, character,
+        hasSavedPos ? character.px : null,
+        hasSavedPos ? character.py : null,
+        hasSavedPos ? character.map : null
+      );
       const playersOnMap = gameServer.getPlayersOnMap(player.map, player.id);
 
       gameServer.sendTo(ws, {
@@ -118,7 +123,7 @@ wss.on('connection', (ws) => {
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', async () => {
     const player = gameServer.removePlayer(ws);
     if (player) {
       gameServer.broadcastToMap(player.map, {
@@ -126,6 +131,16 @@ wss.on('connection', (ws) => {
         id: player.id,
       });
       console.log(`${player.name} left the world`);
+
+      try {
+        await supabase.from('characters').update({
+          map: player.map,
+          px: Math.round(player.px),
+          py: Math.round(player.py),
+        }).eq('id', player.id);
+      } catch (err) {
+        console.error('Failed to save position:', err.message);
+      }
     }
   });
 });
