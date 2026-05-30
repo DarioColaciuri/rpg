@@ -212,6 +212,7 @@ export default class GameScene extends Phaser.Scene {
             } else {
               const newPlayer = new Player(this, p.px, p.py, p, false);
               this.playerSprites.set(p.id, newPlayer);
+              newPlayer.updateRemoteState(p.flipX, p.animState, p.isCrouching);
             }
           }
           for (const id of currentIds) {
@@ -246,7 +247,9 @@ export default class GameScene extends Phaser.Scene {
       case 'player_joined': {
         const p = msg.player;
         if (!this.playerSprites.has(p.id)) {
-          this.playerSprites.set(p.id, new Player(this, p.px, p.py, p, false));
+          const newPlayer = new Player(this, p.px, p.py, p, false);
+          this.playerSprites.set(p.id, newPlayer);
+          newPlayer.updateRemoteState(p.flipX, p.animState, p.isCrouching);
           this.bringMyPlayerToTop();
         }
         break;
@@ -274,6 +277,7 @@ export default class GameScene extends Phaser.Scene {
             }
           } else {
             sprite.updatePosition(msg.px, msg.py);
+            sprite.updateRemoteState(msg.flipX, msg.animState, msg.isCrouching);
           }
         }
         break;
@@ -306,6 +310,7 @@ export default class GameScene extends Phaser.Scene {
           sprite.confirmedPx = msg.px;
           sprite.confirmedPy = msg.py;
           sprite.updatePosition(msg.px, msg.py);
+          sprite.updateRemoteState(msg.flipX, msg.animState, msg.isCrouching);
           if (msg.hp !== undefined && sprite.playerData?.maxHp) {
             sprite.playerData.hp = msg.hp;
             sprite.updateHp(msg.hp, sprite.playerData.maxHp);
@@ -431,7 +436,12 @@ export default class GameScene extends Phaser.Scene {
       const dx = Math.abs(px - this._lastSentX);
       const dy = Math.abs(py - this._lastSentY);
       if (dx > SYNC_MIN_DIST || dy > SYNC_MIN_DIST) {
-        gameSocket.send('move', { px, py });
+        gameSocket.send('move', {
+          px, py,
+          flipX: player._visual.flipX,
+          animState: player.animState,
+          isCrouching: player.isCrouching,
+        });
         this._lastSentX = px;
         this._lastSentY = py;
       }

@@ -66,6 +66,9 @@ export class GameServer {
       maxStamina: player.maxStamina,
       level: player.level,
       xp: player.xp,
+      flipX: player.flipX ?? false,
+      animState: player.animState ?? 'idle',
+      isCrouching: player.isCrouching ?? false,
     };
   }
 
@@ -168,13 +171,17 @@ export class GameServer {
     }
   }
 
-  handleMove(ws, px, py, transitionTo) {
+  handleMove(ws, px, py, transitionTo, flipX, animState, isCrouching) {
     const playerId = this.wsToPlayer.get(ws);
     if (!playerId) return;
     const player = this.players.get(playerId);
     if (!player) return;
 
     if (typeof px !== 'number' || typeof py !== 'number') return;
+
+    player.flipX = flipX ?? player.flipX ?? false;
+    player.animState = animState || player.animState || 'idle';
+    player.isCrouching = isCrouching ?? player.isCrouching ?? false;
 
     if (transitionTo && MAPS[transitionTo]) {
       const validTransition =
@@ -240,12 +247,18 @@ export class GameServer {
       id: player.id,
       px: px,
       py: py,
+      flipX: player.flipX,
+      animState: player.animState,
+      isCrouching: player.isCrouching,
     }, ws);
     this.sendTo(ws, {
       type: 'player_moved',
       id: player.id,
       px: px,
       py: py,
+      flipX: player.flipX,
+      animState: player.animState,
+      isCrouching: player.isCrouching,
     });
   }
 
@@ -316,6 +329,9 @@ export class GameServer {
         px: target.px,
         py: target.py,
         hp: target.hp,
+        flipX: target.flipX ?? false,
+        animState: target.animState ?? 'idle',
+        isCrouching: target.isCrouching ?? false,
       });
       const targetWs = this.getWsByPlayerId(target.id);
       if (targetWs) {
@@ -325,6 +341,9 @@ export class GameServer {
           id: target.id,
           px: target.px,
           py: target.py,
+          flipX: target.flipX,
+          animState: target.animState,
+          isCrouching: target.isCrouching,
         });
       }
     }
@@ -420,6 +439,9 @@ export class GameServer {
         px: target.px,
         py: target.py,
         hp: target.hp,
+        flipX: target.flipX ?? false,
+        animState: target.animState ?? 'idle',
+        isCrouching: target.isCrouching ?? false,
       });
       const targetWs = this.getWsByPlayerId(target.id);
       if (targetWs) {
@@ -429,6 +451,9 @@ export class GameServer {
           id: target.id,
           px: target.px,
           py: target.py,
+          flipX: target.flipX,
+          animState: target.animState,
+          isCrouching: target.isCrouching,
         });
       }
     }

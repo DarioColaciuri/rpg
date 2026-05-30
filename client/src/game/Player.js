@@ -36,6 +36,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this.isRunning = false;
     this.droppingThrough = false;
     this.animPrefix = className;
+    this.animState = 'idle';
     this._visualCfg = CLASS_VISUAL[className] || CLASS_VISUAL.warrior;
 
     this._visual = scene.add.sprite(x, y + this._visualCfg.offsetY, spriteKey);
@@ -178,6 +179,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
     }
 
     const key = this.animPrefix + '_' + state;
+    this.animState = state;
     if (!this._visual.anims.currentAnim || this._visual.anims.currentAnim.key !== key) {
       this._visual.play(key);
     }
@@ -192,6 +194,26 @@ export default class Player extends Phaser.GameObjects.Sprite {
       if (this.hasPhysics) {
         this.body.setVelocity(0, 0);
         this.body.updateFromGameObject();
+      }
+    }
+  }
+
+  updateRemoteState(flipX, animState, isCrouching) {
+    if (this._visual) {
+      if (flipX !== undefined) this._visual.setFlipX(flipX);
+      if (animState && animState !== this.animState) {
+        this.animState = animState;
+        const key = this.animPrefix + '_' + animState;
+        if (!this._visual.anims.currentAnim || this._visual.anims.currentAnim.key !== key) {
+          this._visual.play(key);
+        }
+      }
+      if (isCrouching !== undefined && isCrouching !== this.isCrouching) {
+        if (isCrouching) {
+          this.crouch();
+        } else {
+          this.standUp();
+        }
       }
     }
   }
