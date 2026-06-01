@@ -2,10 +2,9 @@ import Phaser from 'phaser';
 
 const PLAYER_W = 32;
 const PLAYER_H = 64;
-const DISPLAY_W = 128;
-const DISPLAY_H = 128;
-const CROUCH_H = 32;
-const DISPLAY_CROUCH_H = 64;
+const DISPLAY_W = 32;
+const DISPLAY_H = 64;
+const DISPLAY_CROUCH_H = 32;
 const MOVE_SPEED = 200;
 const RUN_SPEED = 400;
 const JUMP_VEL = -420;
@@ -13,15 +12,12 @@ const DRAG_X = 800;
 const MAX_VEL_Y = 800;
 const DROP_THROUGH_MS = 250;
 
-const CLASS_VISUAL = {
-  warrior: { offsetX: 32, offsetY: -32 },
-  wizard:  { offsetX: 0, offsetY: -32, idleOffsetX: 16, jumpOffsetX: 16 },
-};
-
 export default class Player extends Phaser.GameObjects.Sprite {
   constructor(scene, x, y, playerData, hasPhysics = false) {
-    const className = (playerData.class === 'MAGE' || playerData.class === 'WIZARD') ? 'wizard' : 'warrior';
-    const spriteKey = className + '_idle';
+    const race = (playerData.race || 'human').toLowerCase();
+    const sex = (playerData.sex || 'male').toLowerCase();
+    const direction = 'right';
+    const spriteKey = `${race}_${sex}_walk_${direction}`;
 
     super(scene, x, y, spriteKey);
 
@@ -29,19 +25,20 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this.setVisible(false);
 
     this.playerId = playerData.id;
-    this.playerClass = className;
     this.playerData = playerData;
     this.hasPhysics = hasPhysics;
     this.isCrouching = false;
     this.isRunning = false;
     this.droppingThrough = false;
-    this.animPrefix = className;
-    this.animState = 'idle';
+    this.race = race;
+    this.sex = sex;
+    this.direction = direction;
+    this.lastDirection = direction;
+    this.animState = 'walk';
     this._targetX = null;
     this._targetY = null;
-    this._visualCfg = CLASS_VISUAL[className] || CLASS_VISUAL.warrior;
 
-    this._visual = scene.add.sprite(x, y + this._visualCfg.offsetY, spriteKey);
+    this._visual = scene.add.sprite(x, y, spriteKey);
     this._visual.setDepth(5);
     this._visual.setDisplaySize(DISPLAY_W, DISPLAY_H);
 
@@ -104,6 +101,10 @@ export default class Player extends Phaser.GameObjects.Sprite {
     if (playerData.hp !== undefined && playerData.maxHp) {
       this.updateHp(playerData.hp, playerData.maxHp);
     }
+
+    if (this._visual.anims && scene.anims.exists(spriteKey)) {
+      this._visual.play(spriteKey);
+    }
   }
 
   get x() { return super.x; }
@@ -115,7 +116,8 @@ export default class Player extends Phaser.GameObjects.Sprite {
     if (this.hasPhysics) {
       const speed = this.isRunning ? RUN_SPEED : MOVE_SPEED;
       this.body.setVelocityX(-speed);
-      this._visual.setFlipX(true);
+      this.direction = 'left';
+      this.lastDirection = 'left';
     }
   }
 
@@ -123,7 +125,8 @@ export default class Player extends Phaser.GameObjects.Sprite {
     if (this.hasPhysics) {
       const speed = this.isRunning ? RUN_SPEED : MOVE_SPEED;
       this.body.setVelocityX(speed);
-      this._visual.setFlipX(false);
+      this.direction = 'right';
+      this.lastDirection = 'right';
     }
   }
 
@@ -175,21 +178,22 @@ export default class Player extends Phaser.GameObjects.Sprite {
     if (!this.hasPhysics) return;
     if (!this._visual.anims) return;
 
-    let state;
-    const onGround = this.body.touching.down || this.body.blocked.down;
+    const isMoving = this.body && Math.abs(this.body.velocity.x) > 0;
 
-    if (!onGround) {
-      state = 'jump';
-    } else if (Math.abs(this.body.velocity.x) > 10) {
-      state = this.isRunning ? 'run' : 'walk';
+    if (isMoving) {
+      const key = `${this.race}_${this.sex}_walk_${this.direction}`;
+      this.animState = 'walk';
+      if (!this._visual.anims.currentAnim || this._visual.anims.currentAnim.key !== key) {
+        this._visual.play(key);
+      }
     } else {
-      state = 'idle';
-    }
-
-    const key = this.animPrefix + '_' + state;
-    this.animState = state;
-    if (!this._visual.anims.currentAnim || this._visual.anims.currentAnim.key !== key) {
-      this._visual.play(key);
+      const idleKey = `${this.race}_${this.sex}_idle_${this.lastDirection}`;
+      if (this.scene.anims.exists(idleKey)) {
+        this.animState = 'idle';
+        if (!this._visual.anims.currentAnim || this._visual.anims.currentAnim.key !== idleKey) {
+          this._visual.play(idleKey);
+        }
+      }
     }
   }
 
@@ -215,12 +219,23 @@ export default class Player extends Phaser.GameObjects.Sprite {
     }
   }
 
-  updateRemoteState(flipX, animState, isCrouching) {
+  updateRemoteState(direction, animState, isCrouching) {
     if (this._visual) {
-      if (flipX !== undefined) this._visual.setFlipX(flipX);
-      if (animState && animState !== this.animState) {
-        this.animState = animState;
-        const key = this.animPrefix + '_' + animState;
+      if (direction) {
+        this.direction = direction;
+        this.lastDirection = direction;
+        this.animState = animState || 'walk';
+
+        let key;
+        if (animState === 'idle') {
+          key = `${this.race}_${this.sex}_idle_${direction}`;
+          if (!this.scene.anims.exists(key)) {
+            key = `${this.race}_${this.sex}_walk_${direction}`;
+          }
+        } else {
+          key = `${this.race}_${this.sex}_walk_${direction}`;
+        }
+
         if (!this._visual.anims.currentAnim || this._visual.anims.currentAnim.key !== key) {
           this._visual.play(key);
         }
@@ -271,17 +286,8 @@ export default class Player extends Phaser.GameObjects.Sprite {
       this.body.updateFromGameObject();
     }
 
-    const cfg = this._visualCfg;
-    const visualOffsetY = this.isCrouching ? 0 : cfg.offsetY;
-    const isIdle = this._visual.anims && this._visual.anims.currentAnim
-      && this._visual.anims.currentAnim.key.endsWith('_idle');
-    const isJump = this._visual.anims && this._visual.anims.currentAnim
-      && this._visual.anims.currentAnim.key.endsWith('_jump');
-    let offsetX = cfg.offsetX;
-    if (isIdle && cfg.idleOffsetX != null) offsetX = cfg.idleOffsetX;
-    if (isJump && cfg.jumpOffsetX != null) offsetX = cfg.jumpOffsetX;
-    this._visual.x = this.x + (this._visual.flipX ? -offsetX : offsetX);
-    this._visual.y = this.y + visualOffsetY;
+    this._visual.x = this.x;
+    this._visual.y = this.y;
 
     const px = this.x;
     const py = this.y;
@@ -302,12 +308,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
     if (this._hitboxGfx && this.hasPhysics && this.body) {
       this._hitboxGfx.clear();
-      this._hitboxGfx.fillStyle(0xff0000, 0.25);
-      this._hitboxGfx.lineStyle(1, 0xff0000, 0.6);
-      this._hitboxGfx.fillRect(
-        this.x - PLAYER_W / 2, this.y - PLAYER_H / 2,
-        PLAYER_W, PLAYER_H
-      );
+      this._hitboxGfx.lineStyle(1, 0xff0000, 0.8);
       this._hitboxGfx.strokeRect(
         this.x - PLAYER_W / 2, this.y - PLAYER_H / 2,
         PLAYER_W, PLAYER_H

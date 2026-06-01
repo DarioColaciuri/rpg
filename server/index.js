@@ -103,7 +103,7 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'move') {
-      gameServer.handleMove(ws, msg.px, msg.py, msg.transitionTo, msg.flipX, msg.animState, msg.isCrouching);
+      gameServer.handleMove(ws, msg.px, msg.py, msg.transitionTo, msg.direction, msg.animState, msg.isCrouching);
       return;
     }
 

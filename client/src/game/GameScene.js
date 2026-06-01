@@ -221,7 +221,7 @@ export default class GameScene extends Phaser.Scene {
               const newPlayer = new Player(this, p.px, p.py, p, false);
               this.playerSprites.set(p.id, newPlayer);
               this.remoteGroup.add(newPlayer);
-              newPlayer.updateRemoteState(p.flipX, p.animState, p.isCrouching);
+              newPlayer.updateRemoteState(p.direction, p.animState, p.isCrouching);
             }
           }
           for (const id of currentIds) {
@@ -239,7 +239,8 @@ export default class GameScene extends Phaser.Scene {
             id: this.myId,
             name: s.name || 'You',
             class: s.class || 'WARRIOR',
-            race: s.race || 'HUMAN',
+            race: s.race || 'human',
+            sex: s.sex || 'man',
             px: spx,
             py: spy,
             hp: s.hp,
@@ -259,7 +260,7 @@ export default class GameScene extends Phaser.Scene {
           const newPlayer = new Player(this, p.px, p.py, p, false);
           this.playerSprites.set(p.id, newPlayer);
           this.remoteGroup.add(newPlayer);
-          newPlayer.updateRemoteState(p.flipX, p.animState, p.isCrouching);
+          newPlayer.updateRemoteState(p.direction, p.animState, p.isCrouching);
           this.bringMyPlayerToTop();
         }
         break;
@@ -287,7 +288,7 @@ export default class GameScene extends Phaser.Scene {
             }
           } else {
             sprite.updatePosition(msg.px, msg.py);
-            sprite.updateRemoteState(msg.flipX, msg.animState, msg.isCrouching);
+            sprite.updateRemoteState(msg.direction, msg.animState, msg.isCrouching);
           }
         }
         break;
@@ -320,7 +321,7 @@ export default class GameScene extends Phaser.Scene {
           sprite.confirmedPx = msg.px;
           sprite.confirmedPy = msg.py;
           sprite.updatePosition(msg.px, msg.py);
-          sprite.updateRemoteState(msg.flipX, msg.animState, msg.isCrouching);
+          sprite.updateRemoteState(msg.direction, msg.animState, msg.isCrouching);
           if (msg.hp !== undefined && sprite.playerData?.maxHp) {
             sprite.playerData.hp = msg.hp;
             sprite.updateHp(msg.hp, sprite.playerData.maxHp);
@@ -448,7 +449,7 @@ export default class GameScene extends Phaser.Scene {
       if (dx > SYNC_MIN_DIST || dy > SYNC_MIN_DIST) {
         gameSocket.send('move', {
           px, py,
-          flipX: player._visual.flipX,
+          direction: player.direction,
           animState: player.animState,
           isCrouching: player.isCrouching,
         });
