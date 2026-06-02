@@ -210,6 +210,8 @@ export default class Player extends Phaser.GameObjects.Sprite {
       if (isMoving) {
         const headKey = `${this.race}_${this.sex}_head_static_${this.direction}`;
         if (this.scene.textures.exists(headKey)) {
+          this._head.anims.stop();
+          this._head.anims.currentAnim = null;
           this._head.setTexture(headKey);
           this._head.setVisible(true);
         } else {
