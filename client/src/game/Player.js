@@ -42,6 +42,15 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this._visual.setDepth(5);
     this._visual.setDisplaySize(DISPLAY_W, DISPLAY_H);
 
+    const headStaticKey = `${race}_${sex}_head_static_${direction}`;
+    if (scene.textures.exists(headStaticKey)) {
+      this._head = scene.add.sprite(x, y, headStaticKey);
+      this._head.setDepth(6);
+      this._head.setDisplaySize(DISPLAY_W, DISPLAY_H);
+    } else {
+      this._head = null;
+    }
+
     this.confirmedPx = playerData.px ?? x;
     this.confirmedPy = playerData.py ?? y;
 
@@ -137,6 +146,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
   bringToTop() {
     this.setDepth(10);
     if (this._visual) this._visual.setDepth(10);
+    if (this._head) this._head.setDepth(11);
   }
 
   jump() {
@@ -195,6 +205,28 @@ export default class Player extends Phaser.GameObjects.Sprite {
         }
       }
     }
+
+    if (this._head) {
+      if (isMoving) {
+        const headKey = `${this.race}_${this.sex}_head_static_${this.direction}`;
+        if (this.scene.textures.exists(headKey)) {
+          this._head.setTexture(headKey);
+          this._head.setVisible(true);
+        } else {
+          this._head.setVisible(false);
+        }
+      } else {
+        const headIdleKey = `${this.race}_${this.sex}_head_idle_${this.lastDirection}`;
+        if (this.scene.anims.exists(headIdleKey)) {
+          if (!this._head.anims.currentAnim || this._head.anims.currentAnim.key !== headIdleKey) {
+            this._head.play(headIdleKey);
+          }
+          this._head.setVisible(true);
+        } else {
+          this._head.setVisible(false);
+        }
+      }
+    }
   }
 
   updatePosition(px, py, instant = false) {
@@ -238,6 +270,28 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
         if (!this._visual.anims.currentAnim || this._visual.anims.currentAnim.key !== key) {
           this._visual.play(key);
+        }
+
+        if (this._head) {
+          if (animState === 'idle') {
+            const headIdleKey = `${this.race}_${this.sex}_head_idle_${direction}`;
+            if (this.scene.anims.exists(headIdleKey)) {
+              if (!this._head.anims.currentAnim || this._head.anims.currentAnim.key !== headIdleKey) {
+                this._head.play(headIdleKey);
+              }
+              this._head.setVisible(true);
+            } else {
+              this._head.setVisible(false);
+            }
+          } else {
+            const headKey = `${this.race}_${this.sex}_head_static_${direction}`;
+            if (this.scene.textures.exists(headKey)) {
+              this._head.setTexture(headKey);
+              this._head.setVisible(true);
+            } else {
+              this._head.setVisible(false);
+            }
+          }
         }
       }
       if (isCrouching !== undefined && isCrouching !== this.isCrouching) {
@@ -288,6 +342,10 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
     this._visual.x = this.x;
     this._visual.y = this.y;
+    if (this._head) {
+      this._head.x = this.x;
+      this._head.y = this.y;
+    }
 
     const px = this.x;
     const py = this.y;
@@ -324,6 +382,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
   destroy() {
     if (this._visual) this._visual.destroy();
+    if (this._head) this._head.destroy();
     if (this._hitboxGfx) this._hitboxGfx.destroy();
     if (this._hitboxLabel) this._hitboxLabel.destroy();
     if (this.hasPhysics && this.body) {

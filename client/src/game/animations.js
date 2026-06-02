@@ -1,5 +1,6 @@
 const RACES = ['human', 'gnome'];
 const SEXES = ['male', 'female'];
+const HEAD_RACES = ['human'];
 const DIRECTIONS = ['left', 'right'];
 
 const SHEETS = [];
@@ -11,7 +12,32 @@ for (const race of RACES) {
   }
 }
 
-const IDLE_SHEETS = ['human_male_idle_left', 'human_male_idle_right'];
+const IDLE_SHEETS = [];
+for (const race of RACES) {
+  for (const sex of SEXES) {
+    for (const dir of DIRECTIONS) {
+      IDLE_SHEETS.push(`${race}_${sex}_idle_${dir}`);
+    }
+  }
+}
+
+const HEAD_IDLE_SHEETS = [];
+for (const race of HEAD_RACES) {
+  for (const sex of SEXES) {
+    for (const dir of DIRECTIONS) {
+      HEAD_IDLE_SHEETS.push(`${race}_${sex}_head_idle_${dir}`);
+    }
+  }
+}
+
+const HEAD_STATIC_SHEETS = [];
+for (const race of HEAD_RACES) {
+  for (const sex of SEXES) {
+    for (const dir of DIRECTIONS) {
+      HEAD_STATIC_SHEETS.push(`${race}_${sex}_head_static_${dir}`);
+    }
+  }
+}
 
 export function preloadSpritesheets(scene) {
   for (const key of SHEETS) {
@@ -21,6 +47,18 @@ export function preloadSpritesheets(scene) {
     });
   }
   for (const key of IDLE_SHEETS) {
+    scene.load.spritesheet(key, `graphics/characters/${key}.png`, {
+      frameWidth: 32,
+      frameHeight: 64,
+    });
+  }
+  for (const key of HEAD_IDLE_SHEETS) {
+    scene.load.spritesheet(key, `graphics/characters/${key}.png`, {
+      frameWidth: 32,
+      frameHeight: 64,
+    });
+  }
+  for (const key of HEAD_STATIC_SHEETS) {
     scene.load.spritesheet(key, `graphics/characters/${key}.png`, {
       frameWidth: 32,
       frameHeight: 64,
@@ -46,6 +84,22 @@ export function createAnimations(scene) {
   }
 
   for (const key of IDLE_SHEETS) {
+    if (scene.anims.exists(key)) continue;
+
+    const texture = scene.textures.get(key);
+    const frameCount = texture ? Object.keys(texture.frames).length : 0;
+
+    if (frameCount > 0) {
+      scene.anims.create({
+        key,
+        frames: scene.anims.generateFrameNumbers(key, { start: 0, end: frameCount - 1 }),
+        frameRate: 7,
+        repeat: -1,
+      });
+    }
+  }
+
+  for (const key of HEAD_IDLE_SHEETS) {
     if (scene.anims.exists(key)) continue;
 
     const texture = scene.textures.get(key);
