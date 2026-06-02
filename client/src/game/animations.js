@@ -1,6 +1,7 @@
 const RACES = ['human', 'gnome'];
 const SEXES = ['male', 'female'];
 const HEAD_RACES = ['human'];
+const HEAD_VARIANTS = [1, 2];
 const DIRECTIONS = ['left', 'right'];
 
 const SHEETS = [];
@@ -25,7 +26,9 @@ const HEAD_IDLE_SHEETS = [];
 for (const race of HEAD_RACES) {
   for (const sex of SEXES) {
     for (const dir of DIRECTIONS) {
-      HEAD_IDLE_SHEETS.push(`${race}_${sex}_head_idle_${dir}`);
+      for (const v of HEAD_VARIANTS) {
+        HEAD_IDLE_SHEETS.push(`${race}_${sex}_head_idle_${dir}_${v}`);
+      }
     }
   }
 }
@@ -34,7 +37,9 @@ const HEAD_STATIC_SHEETS = [];
 for (const race of HEAD_RACES) {
   for (const sex of SEXES) {
     for (const dir of DIRECTIONS) {
-      HEAD_STATIC_SHEETS.push(`${race}_${sex}_head_static_${dir}`);
+      for (const v of HEAD_VARIANTS) {
+        HEAD_STATIC_SHEETS.push(`${race}_${sex}_head_static_${dir}_${v}`);
+      }
     }
   }
 }

@@ -17,6 +17,7 @@ export default function CharacterCreate({ session, onBack, onCreated }) {
   const [race, setRace] = useState('HUMAN');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [headVariant, setHeadVariant] = useState(1);
 
   const calcStats = () => {
     const base = CLASS_STATS[charClass];
@@ -63,6 +64,7 @@ export default function CharacterCreate({ session, onBack, onCreated }) {
       map: 'city',
       x: 10,
       y: 10,
+      head_variant: headVariant,
     });
 
     if (insertError) {
@@ -120,6 +122,38 @@ export default function CharacterCreate({ session, onBack, onCreated }) {
             </button>
           </div>
           <div className="create-desc">{RACE_STATS[race].desc}</div>
+
+          <label className="create-label">Head Style</label>
+          {race === 'HUMAN' ? (
+            <div className="create-options">
+              <button type="button"
+                className={`opt-btn ${headVariant === 1 ? 'opt-active' : ''}`}
+                onClick={() => setHeadVariant(1)}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                <span style={{
+                  display: 'inline-block', width: 24, height: 24,
+                  background: '#cc3333', borderRadius: 4
+                }} />
+                Head 1
+              </button>
+              <button type="button"
+                className={`opt-btn ${headVariant === 2 ? 'opt-active' : ''}`}
+                onClick={() => setHeadVariant(2)}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                <span style={{
+                  display: 'inline-block', width: 24, height: 24,
+                  background: '#3366cc', borderRadius: 4
+                }} />
+                Head 2
+              </button>
+            </div>
+          ) : (
+            <div className="create-desc" style={{ padding: '8px', color: '#888' }}>
+              No heads available for Gnomes
+            </div>
+          )}
 
           <div className="create-preview">
             <div>HP: {preview.hp} | Mana: {preview.mana} | Stamina: {preview.stamina}</div>

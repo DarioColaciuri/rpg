@@ -69,6 +69,7 @@ export class GameServer {
       direction: player.direction ?? 'right',
       animState: player.animState ?? 'walk',
       isCrouching: player.isCrouching ?? false,
+      headVariant: player.headVariant ?? 1,
     };
   }
 
@@ -90,6 +91,7 @@ export class GameServer {
       drink: player.drink,
       level: player.level,
       xp: player.xp,
+      headVariant: player.headVariant ?? 1,
     };
   }
 
@@ -151,6 +153,7 @@ export class GameServer {
       py: usePy,
       lastMoveTime: 0,
       selectedSpell: null,
+      headVariant: character.head_variant ?? 1,
     };
 
     this.players.set(player.id, player);

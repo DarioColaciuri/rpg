@@ -38,11 +38,13 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this._targetX = null;
     this._targetY = null;
 
+    this.headVariant = playerData.headVariant || 1;
+
     this._visual = scene.add.sprite(x, y, spriteKey);
     this._visual.setDepth(5);
     this._visual.setDisplaySize(DISPLAY_W, DISPLAY_H);
 
-    const headStaticKey = `${race}_${sex}_head_static_${direction}`;
+    const headStaticKey = `${race}_${sex}_head_static_${direction}_${this.headVariant}`;
     if (scene.textures.exists(headStaticKey)) {
       this._head = scene.add.sprite(x, y, headStaticKey);
       this._head.setDepth(6);
@@ -208,7 +210,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
     if (this._head) {
       if (isMoving) {
-        const headKey = `${this.race}_${this.sex}_head_static_${this.direction}`;
+        const headKey = `${this.race}_${this.sex}_head_static_${this.direction}_${this.headVariant}`;
         if (this.scene.textures.exists(headKey)) {
           this._head.anims.stop();
           this._head.anims.currentAnim = null;
@@ -218,7 +220,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
           this._head.setVisible(false);
         }
       } else {
-        const headIdleKey = `${this.race}_${this.sex}_head_idle_${this.lastDirection}`;
+        const headIdleKey = `${this.race}_${this.sex}_head_idle_${this.lastDirection}_${this.headVariant}`;
         if (this.scene.anims.exists(headIdleKey)) {
           if (!this._head.anims.currentAnim || this._head.anims.currentAnim.key !== headIdleKey) {
             this._head.play(headIdleKey);
@@ -274,9 +276,9 @@ export default class Player extends Phaser.GameObjects.Sprite {
           this._visual.play(key);
         }
 
-        if (this._head) {
+          if (this._head) {
           if (animState === 'idle') {
-            const headIdleKey = `${this.race}_${this.sex}_head_idle_${direction}`;
+            const headIdleKey = `${this.race}_${this.sex}_head_idle_${direction}_${this.headVariant}`;
             if (this.scene.anims.exists(headIdleKey)) {
               if (!this._head.anims.currentAnim || this._head.anims.currentAnim.key !== headIdleKey) {
                 this._head.play(headIdleKey);
@@ -286,7 +288,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
               this._head.setVisible(false);
             }
           } else {
-            const headKey = `${this.race}_${this.sex}_head_static_${direction}`;
+            const headKey = `${this.race}_${this.sex}_head_static_${direction}_${this.headVariant}`;
             if (this.scene.textures.exists(headKey)) {
               this._head.setTexture(headKey);
               this._head.setVisible(true);

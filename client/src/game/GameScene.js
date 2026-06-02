@@ -245,6 +245,7 @@ export default class GameScene extends Phaser.Scene {
             py: spy,
             hp: s.hp,
             maxHp: s.maxHp,
+            headVariant: s.headVariant,
           }, true);
           this.playerSprites.set(this.myId, localPlayer);
           this._addPlayerColliders(localPlayer);
