@@ -21,7 +21,7 @@ const gameServer = new GameServer();
 const pendingSaves = new Set();
 
 function trackSave(promise) {
-  const p = promise.catch(() => {});
+  const p = Promise.resolve(promise).catch(() => {});
   pendingSaves.add(p);
   p.finally(() => pendingSaves.delete(p));
   return promise;
@@ -172,6 +172,18 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'revive') {
       gameServer.handleRevive(ws);
+      const pId = gameServer.wsToPlayer.get(ws);
+      if (pId) {
+        const player = gameServer.players.get(pId);
+        if (player) {
+          trackSave(supabase.from('characters').update({
+            map: player.map,
+            x: Math.round(player.px),
+            y: Math.round(player.py),
+            hp: player.hp,
+          }).eq('id', player.id));
+        }
+      }
       return;
     }
 
@@ -282,6 +294,9 @@ wss.on('connection', (ws) => {
         if (player.dead) {
           updateData.map = 'city';
           updateData.hp = player.maxHp;
+          const spawn = gameServer.findSpawn('city');
+          updateData.x = Math.round(spawn.px);
+          updateData.y = Math.round(spawn.py);
         }
         await trackSave(supabase.from('characters').update(updateData).eq('id', player.id));
 
