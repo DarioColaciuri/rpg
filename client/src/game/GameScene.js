@@ -601,6 +601,7 @@ export default class GameScene extends Phaser.Scene {
           entry.body.destroy();
           this.enemySprites.delete(msg.id);
         }
+        this.playEnemyDeathSound();
         break;
       }
       case 'enemy_hit': {
@@ -608,6 +609,7 @@ export default class GameScene extends Phaser.Scene {
         if (entry && entry.data) {
           entry.data.hp = msg.hp;
         }
+        this.playEnemyHitSound();
         break;
       }
       case 'enemy_attack': {
@@ -619,6 +621,7 @@ export default class GameScene extends Phaser.Scene {
           }
           this.showFloatingText(sprite.x, sprite.y - 30, `-${msg.damage}`, '#cc44cc');
         }
+        this.playEnemyAttackSound();
         break;
       }
       case 'spell_cast': {
@@ -803,6 +806,121 @@ export default class GameScene extends Phaser.Scene {
     } catch {}
   }
 
+  playEnemyAttackSound() {
+    try {
+      if (!this._audioCtx) this._audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = this._audioCtx;
+      if (ctx.state === 'suspended') ctx.resume();
+      const duration = 0.2;
+      const sr = ctx.sampleRate;
+      const buf = ctx.createBuffer(1, Math.floor(sr * duration), sr);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) {
+        const t = i / d.length;
+        d[i] = (Math.random() * 2 - 1) * (1 - t) * 0.4 + Math.sin(2 * Math.PI * 60 * t) * (1 - t) * 0.3;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = 300;
+      src.connect(f);
+      f.connect(ctx.destination);
+      src.start();
+    } catch {}
+  }
+
+  playEnemyDeathSound() {
+    try {
+      if (!this._audioCtx) this._audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = this._audioCtx;
+      if (ctx.state === 'suspended') ctx.resume();
+      const duration = 0.35;
+      const sr = ctx.sampleRate;
+      const buf = ctx.createBuffer(1, Math.floor(sr * duration), sr);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) {
+        const t = i / d.length;
+        const env = Math.max(0, 1 - t * 3);
+        d[i] = (Math.random() * 2 - 1) * env * 0.35 + Math.sin(2 * Math.PI * 200 * t * (t + 0.5)) * env * 0.2;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(1, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
+      src.connect(g);
+      g.connect(ctx.destination);
+      src.start();
+    } catch {}
+  }
+
+  playEnemyHitSound() {
+    try {
+      if (!this._audioCtx) this._audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = this._audioCtx;
+      if (ctx.state === 'suspended') ctx.resume();
+      const duration = 0.1;
+      const sr = ctx.sampleRate;
+      const buf = ctx.createBuffer(1, Math.floor(sr * duration), sr);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) {
+        const t = i / d.length;
+        d[i] = (Math.random() * 2 - 1) * (1 - t) * 0.3 + Math.sin(2 * Math.PI * 400 * t) * (1 - t * 8) * 0.4;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.value = 600;
+      f.Q.value = 1;
+      src.connect(f);
+      f.connect(ctx.destination);
+      src.start();
+    } catch {}
+  }
+
+  playPickupSound() {
+    try {
+      if (!this._audioCtx) this._audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = this._audioCtx;
+      if (ctx.state === 'suspended') ctx.resume();
+      const duration = 0.15;
+      const sr = ctx.sampleRate;
+      const buf = ctx.createBuffer(1, Math.floor(sr * duration), sr);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) {
+        const t = i / d.length;
+        d[i] = Math.sin(2 * Math.PI * 800 * t * (1 + t * 2)) * (1 - t) * 0.25;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start();
+    } catch {}
+  }
+
+  playUseSound() {
+    try {
+      if (!this._audioCtx) this._audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = this._audioCtx;
+      if (ctx.state === 'suspended') ctx.resume();
+      const duration = 0.2;
+      const sr = ctx.sampleRate;
+      const buf = ctx.createBuffer(1, Math.floor(sr * duration), sr);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) {
+        const t = i / d.length;
+        d[i] = Math.sin(2 * Math.PI * 500 * t) * Math.sin(Math.PI * t) * 0.25
+          + Math.sin(2 * Math.PI * 700 * t) * Math.sin(Math.PI * t) * 0.15;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start();
+    } catch {}
+  }
+
   update(time, delta) {
     if (!this.myId) return;
 
@@ -862,14 +980,17 @@ export default class GameScene extends Phaser.Scene {
     }
 
     if (Phaser.Input.Keyboard.JustDown(this.fKey)) {
+      let found = false;
       for (const [id, entry] of this.groundItemSprites) {
         const dx = Math.abs(entry.data.px - player.x);
         const dy = Math.abs(entry.data.py - player.y);
         if (dx < 48 && dy < 64) {
           gameSocket.send('pickup_item', { groundItemId: id });
+          found = true;
           break;
         }
       }
+      if (found) this.playPickupSound();
     }
 
     if (Phaser.Input.Keyboard.JustDown(this.tKey)) {
@@ -881,6 +1002,14 @@ export default class GameScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this.uKey)) {
       if (gameSocket.selectedSlot != null) {
         gameSocket.send('use_item', { slot: gameSocket.selectedSlot });
+        this.playUseSound();
+      }
+    }
+
+    for (let i = 0; i < 10; i++) {
+      if (Phaser.Input.Keyboard.JustDown(this.numKeys[i])) {
+        gameSocket.send('use_item', { slot: i });
+        this.playUseSound();
       }
     }
 
