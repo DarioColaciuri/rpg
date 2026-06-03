@@ -16,6 +16,9 @@ const MAX_MOVE_DIST = 80;
 
 const RUN_CONSUME_AMOUNT = 2;
 const RUN_TICK_MS = 100;
+const SPELL_MANA_COST = 2;
+const MEDITATE_MANA_REGEN = 5;
+const MEDITATE_INTERVAL = 1000;
 
 const ITEM_DEFS = {
   apple: { name: 'Apple', stat: 'food', amount: 10 },
@@ -78,6 +81,7 @@ export class GameServer {
     this.startStaminaRegen();
     this.startStatDrain();
     this.startHpRegen();
+    this.startMeditationRegen();
   }
 
   startStaminaRegen() {
@@ -142,6 +146,23 @@ export class GameServer {
         }
       }
     }, 1000);
+  }
+
+  startMeditationRegen() {
+    setInterval(() => {
+      for (const [, p] of this.players) {
+        if (p.meditating && p.mana < p.maxMana) {
+          p.mana = Math.min(p.mana + MEDITATE_MANA_REGEN, p.maxMana);
+          const ws = this.getWsByPlayerId(p.id);
+          if (ws) this.sendTo(ws, { type: 'stats_update', ...this.getStats(p) });
+          if (p.mana >= p.maxMana) {
+            p.meditating = false;
+            if (ws) this.sendTo(ws, { type: 'meditate_stopped' });
+            this.broadcastToMap(p.map, { type: 'player_meditating', id: p.id, meditating: false });
+          }
+        }
+      }
+    }, MEDITATE_INTERVAL);
   }
 
   playerData(player) {
@@ -422,12 +443,37 @@ export class GameServer {
     const playerId = this.wsToPlayer.get(ws);
     if (!playerId) return;
     const player = this.players.get(playerId);
-    if (!player) return;
-    if (player.dead) return;
+    if (!player || player.dead) return;
 
     if (player.stamina <= 0) return;
     player.stamina = Math.max(0, player.stamina - RUN_CONSUME_AMOUNT);
     this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
+  }
+
+  handleMeditateStart(ws) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const player = this.players.get(playerId);
+    if (!player || player.dead) return;
+
+    if (player.meditating) return;
+    if (player.mana >= player.maxMana) { this.sendTo(ws, { type: 'error', msg: 'Tu mana ya esta lleno' }); return; }
+
+    player.meditating = true;
+    this.broadcastToMap(player.map, { type: 'player_meditating', id: player.id, meditating: true });
+    this.sendTo(ws, { type: 'meditate_started' });
+  }
+
+  handleMeditateStop(ws) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const player = this.players.get(playerId);
+    if (!player) return;
+
+    if (!player.meditating) return;
+    player.meditating = false;
+    this.broadcastToMap(player.map, { type: 'player_meditating', id: player.id, meditating: false });
+    this.sendTo(ws, { type: 'meditate_stopped' });
   }
 
   handleRevive(ws) {
@@ -555,6 +601,12 @@ export class GameServer {
       if (this.isPixelOccupied(player.map, px, py, PLAYER_W, PLAYER_H, player.id)) return;
     }
 
+    if (player.meditating) {
+      player.meditating = false;
+      this.broadcastToMap(player.map, { type: 'player_meditating', id: player.id, meditating: false });
+      this.sendTo(ws, { type: 'meditate_stopped' });
+    }
+
     player.px = px;
     player.py = py;
     player.lastMoveTime = now;
@@ -674,34 +726,34 @@ export class GameServer {
     if (!caster || caster.dead) return;
 
     if (caster.class !== 'MAGE') {
-      this.sendTo(ws, { type: 'error', msg: 'Only mages can cast spells' });
+      this.sendTo(ws, { type: 'error', msg: 'Solo los magos pueden lanzar hechizos' });
       return;
     }
 
     const map = MAPS[caster.map];
     if (!map || map.safe) {
-      this.sendTo(ws, { type: 'error', msg: 'No PvP in safe zone' });
+      this.sendTo(ws, { type: 'error', msg: 'No puedes atacar en zonas seguras' });
       return;
     }
 
-    if (caster.stamina < 1) {
-      this.sendTo(ws, { type: 'error', msg: 'Not enough stamina' });
+    if ((caster.mana || 0) < SPELL_MANA_COST) {
+      this.sendTo(ws, { type: 'error', msg: 'No tienes suficiente mana' });
       return;
     }
 
     if (!targetPlayerId) {
-      this.sendTo(ws, { type: 'error', msg: 'Only on characters' });
+      this.sendTo(ws, { type: 'error', msg: 'Objetivo invalido' });
       return;
     }
 
     const target = this.players.get(targetPlayerId);
     if (!target || target.id === caster.id) {
-      this.sendTo(ws, { type: 'error', msg: 'Only on characters' });
+      this.sendTo(ws, { type: 'error', msg: 'Objetivo invalido' });
       return;
     }
 
     if (target.map !== caster.map) {
-      this.sendTo(ws, { type: 'error', msg: 'Target not on this map' });
+      this.sendTo(ws, { type: 'error', msg: 'El objetivo no esta en este mapa' });
       return;
     }
 
@@ -710,12 +762,12 @@ export class GameServer {
     const tTx = Math.floor(target.px / TILE_SIZE);
     const tTy = Math.floor(target.py / TILE_SIZE);
     const dist = Math.abs(tTx - cTx) + Math.abs(tTy - cTy);
-    if (dist > 8) {
-      this.sendTo(ws, { type: 'error', msg: 'Target too far' });
+    if (dist > 12) {
+      this.sendTo(ws, { type: 'error', msg: 'El objetivo esta muy lejos' });
       return;
     }
 
-    caster.stamina -= 1;
+    caster.mana = Math.max(0, (caster.mana || 0) - SPELL_MANA_COST);
     target.hp = Math.max(0, target.hp - 3);
 
     const msg = {

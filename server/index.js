@@ -151,6 +151,16 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (msg.type === 'meditate_start') {
+      gameServer.handleMeditateStart(ws);
+      return;
+    }
+
+    if (msg.type === 'meditate_stop') {
+      gameServer.handleMeditateStop(ws);
+      return;
+    }
+
     if (msg.type === 'revive') {
       gameServer.handleRevive(ws);
       return;

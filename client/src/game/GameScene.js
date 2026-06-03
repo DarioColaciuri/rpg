@@ -45,6 +45,8 @@ export default class GameScene extends Phaser.Scene {
     this._isDead = false;
     this._onDied = null;
     this._onDropRequest = null;
+    this._lastCursorSpell = null;
+    this._isMeditating = false;
   }
 
   setMyId(id) {
@@ -86,6 +88,7 @@ export default class GameScene extends Phaser.Scene {
     this.fKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F);
     this.tKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.T);
     this.uKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.U);
+    this.qKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
     this.numKeys = [
       this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ONE),
       this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.TWO),
@@ -152,7 +155,7 @@ export default class GameScene extends Phaser.Scene {
       }
 
       if (!targetId) {
-        if (this.onError) this.onError('Only on characters');
+        if (this.onError) this.onError('Objetivo invalido');
         return;
       }
 
@@ -495,6 +498,30 @@ export default class GameScene extends Phaser.Scene {
         if (this.onError) this.onError(msg.msg);
         break;
       }
+      case 'meditate_started': {
+        this._isMeditating = true;
+        if (this.onError) this.onError('Empezaste a meditar');
+        if (this.myId && this.playerSprites.has(this.myId)) {
+          this.playerSprites.get(this.myId).showMeditate();
+        }
+        break;
+      }
+      case 'meditate_stopped': {
+        this._isMeditating = false;
+        if (this.onError) this.onError('Dejaste de meditar');
+        if (this.myId && this.playerSprites.has(this.myId)) {
+          this.playerSprites.get(this.myId).hideMeditate();
+        }
+        break;
+      }
+      case 'player_meditating': {
+        if (this.playerSprites.has(msg.id) && msg.id !== this.myId) {
+          const s = this.playerSprites.get(msg.id);
+          if (msg.meditating) s.showMeditate();
+          else s.hideMeditate();
+        }
+        break;
+      }
       case 'spell_cast': {
         if (this.playerSprites.has(msg.targetId)) {
           const sprite = this.playerSprites.get(msg.targetId);
@@ -504,6 +531,7 @@ export default class GameScene extends Phaser.Scene {
           }
           this.showFloatingText(sprite.x, sprite.y - 30, `-${msg.damage}`, '#8844ff');
         }
+        this.playSpellSound();
         break;
       }
       case 'player_respawned': {
@@ -546,6 +574,7 @@ export default class GameScene extends Phaser.Scene {
       case 'map_change': {
         this._transitioning = false;
         this._isDead = false;
+        this._isMeditating = false;
         this.loadMap(msg.map);
         for (const [, sprite] of this.playerSprites) sprite.destroy();
         this.playerSprites.clear();
@@ -641,11 +670,50 @@ export default class GameScene extends Phaser.Scene {
     } catch {}
   }
 
+  playSpellSound() {
+    try {
+      if (!this._audioCtx) this._audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = this._audioCtx;
+      if (ctx.state === 'suspended') ctx.resume();
+
+      const duration = 0.25;
+      const sampleRate = ctx.sampleRate;
+      const bufferSize = Math.floor(sampleRate * duration);
+      const buffer = ctx.createBuffer(1, bufferSize, sampleRate);
+      const data = buffer.getChannelData(0);
+
+      for (let i = 0; i < bufferSize; i++) {
+        const t = i / bufferSize;
+        const env = Math.sin(Math.PI * t) * 0.6;
+        data[i] = (Math.random() * 2 - 1) * env * 0.15
+          + Math.sin(2 * Math.PI * 800 * t * (1 + t)) * env * 0.2
+          + Math.sin(2 * Math.PI * 300 * t) * env * 0.1;
+      }
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.playbackRate.value = 1 + Math.random() * 0.3;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'highpass';
+      filter.frequency.value = 200;
+
+      source.connect(filter);
+      filter.connect(ctx.destination);
+      source.start();
+    } catch {}
+  }
+
   update(time, delta) {
     if (!this.myId) return;
 
     const player = this.playerSprites.get(this.myId);
     if (!player || !player.hasPhysics) return;
+
+    if (gameSocket.selectedSpell !== this._lastCursorSpell) {
+      this.input.setDefaultCursor(gameSocket.selectedSpell ? 'crosshair' : 'default');
+      this._lastCursorSpell = gameSocket.selectedSpell;
+    }
 
     if (this._isDead) return;
 
@@ -658,6 +726,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     if (Phaser.Input.Keyboard.JustDown(this.ctrlKey)) {
+      if (this._isMeditating) gameSocket.send('meditate_stop');
       gameSocket.send('attack');
     }
 
@@ -681,6 +750,14 @@ export default class GameScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this.uKey)) {
       if (gameSocket.selectedSlot != null) {
         gameSocket.send('use_item', { slot: gameSocket.selectedSlot });
+      }
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.qKey)) {
+      if (this._isMeditating) {
+        gameSocket.send('meditate_stop');
+      } else {
+        gameSocket.send('meditate_start');
       }
     }
 

@@ -109,6 +109,8 @@ export default class Player extends Phaser.GameObjects.Sprite {
       wordWrap: { width: 150 },
     }).setOrigin(0.5, 1).setAlpha(0).setDepth(20);
 
+    this._meditateGfx = null;
+
     if (playerData.hp !== undefined && playerData.maxHp) {
       this.updateHp(playerData.hp, playerData.maxHp);
     }
@@ -331,6 +333,24 @@ export default class Player extends Phaser.GameObjects.Sprite {
     });
   }
 
+  showMeditate() {
+    if (!this._meditateGfx) {
+      this._meditateGfx = this.scene.add.graphics();
+    }
+    this._meditateGfx.clear();
+    this._meditateGfx.fillStyle(0x2244cc, 0.35);
+    this._meditateGfx.fillRect(-16, -32, 32, 64);
+    this._meditateGfx.lineStyle(1, 0x4466ff, 0.6);
+    this._meditateGfx.strokeRect(-16, -32, 32, 64);
+    this._meditateGfx.setDepth(10);
+    this._meditateGfx.setPosition(this.x, this.y);
+    this._meditateGfx.setVisible(true);
+  }
+
+  hideMeditate() {
+    if (this._meditateGfx) this._meditateGfx.setVisible(false);
+  }
+
   preUpdate(time, delta) {
     super.preUpdate(time, delta);
 
@@ -372,6 +392,10 @@ export default class Player extends Phaser.GameObjects.Sprite {
       this._deathGfx.setPosition(this.x, this.y);
     }
 
+    if (this._meditateGfx && this._meditateGfx.visible) {
+      this._meditateGfx.setPosition(this.x, this.y);
+    }
+
     if (this._hitboxGfx && this.hasPhysics && this.body) {
       this._hitboxGfx.clear();
       this._hitboxGfx.lineStyle(1, 0xff0000, 0.8);
@@ -392,6 +416,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
     if (this._visual) this._visual.destroy();
     if (this._head) this._head.destroy();
     if (this._deathGfx) this._deathGfx.destroy();
+    if (this._meditateGfx) this._meditateGfx.destroy();
     if (this._hitboxGfx) this._hitboxGfx.destroy();
     if (this._hitboxLabel) this._hitboxLabel.destroy();
     if (this.hasPhysics && this.body) {
