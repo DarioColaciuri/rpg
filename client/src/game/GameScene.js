@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { MAPS, TILE_SIZE, TILE_AIR, TILE_SOLID, TILE_PLATFORM, MAP_COLS, MAP_ROWS, checkMapTransition } from './maps.js';
+import { TILE_SIZE, MAP_COLS, MAP_ROWS, checkMapTransition } from './maps.js';
 import Player from './Player.js';
 import { preloadSpritesheets, createAnimations } from './animations.js';
 import { gameSocket } from '../network/websocket.js';
@@ -21,6 +21,8 @@ export default class GameScene extends Phaser.Scene {
     this.playerSprites = new Map();
     this.myId = null;
     this.currentMap = null;
+    this.currentLayer = null;
+    this.currentMapData = null;
     this.cursors = null;
     this.ctrlKey = null;
     this.shiftKey = null;
@@ -72,6 +74,10 @@ export default class GameScene extends Phaser.Scene {
 
   preload() {
     preloadSpritesheets(this);
+    this.load.tilemapTiledJSON('city', 'maps/city.json');
+    this.load.tilemapTiledJSON('forest', 'maps/forest.json');
+    this.load.image('tiles_city', 'maps/tiles_city.png');
+    this.load.image('tiles_forest', 'maps/tiles_forest.png');
   }
 
   create() {
@@ -174,68 +180,34 @@ export default class GameScene extends Phaser.Scene {
     if (this.solidGroup) this.solidGroup.destroy(true, true);
     if (this.boundaryGroup) this.boundaryGroup.destroy(true, true);
     if (this.mapGraphics) this.mapGraphics.destroy();
+    if (this.currentLayer) { this.currentLayer.destroy(); this.currentLayer = null; }
+    if (this.currentMapData) { this.currentMapData.destroy(); this.currentMapData = null; }
     this.clearGroundItems();
     this.clearNpcs();
     this.clearEnemies();
 
+    this.currentMap = mapName;
+    this.currentMapData = this.make.tilemap({ key: mapName });
+    const tileset = this.currentMapData.addTilesetImage(`tiles_${mapName}`);
+    this.currentLayer = this.currentMapData.createLayer('ground', tileset);
+    this.currentLayer.setCollision([2, 3]);
+    this.currentLayer.setCollisionByProperty({ type: 'solid' });
+    this.currentLayer.setCollisionByProperty({ type: 'platform' });
+
+    this.physics.world.setBounds(0, 0,
+      this.currentMapData.width * TILE_SIZE,
+      this.currentMapData.height * TILE_SIZE);
+
+    this.cameras.main.setBackgroundColor(mapName === 'city' ? 0x1a1a3e : 0x0a1a0a);
+
+    const mapPixelW = this.currentMapData.width * TILE_SIZE;
+    const mapPixelH = this.currentMapData.height * TILE_SIZE;
+    this.cameras.main.setBounds(0, 0, mapPixelW, mapPixelH);
+
     this.solidGroup = this.physics.add.staticGroup();
     this.boundaryGroup = this.physics.add.staticGroup();
 
-    this.mapGraphics = this.add.graphics();
-    const mapData = MAPS[mapName];
-    if (!mapData) return;
-
-    const isCity = mapName === 'city';
-    const skyColor = isCity ? 0x1a1a3e : 0x0a1a0a;
-    const solidColor = isCity ? 0x556666 : 0x3a2a1a;
-    const solidColor2 = isCity ? 0x445555 : 0x2a1a0a;
-    const platColor = isCity ? 0x7788aa : 0x4a6a3a;
-    const platColor2 = isCity ? 0x667799 : 0x3a5a2a;
-
-    this.cameras.main.setBackgroundColor(skyColor);
-
-    for (let y = 0; y < mapData.height; y++) {
-      for (let x = 0; x < mapData.width; x++) {
-        const tile = mapData.tiles[y][x];
-        const px = x * TILE_SIZE;
-        const py = y * TILE_SIZE;
-
-        if (tile === TILE_SOLID) {
-          const shade = (x + y) % 2 === 0 ? solidColor : solidColor2;
-          this.mapGraphics.fillStyle(shade, 1);
-          this.mapGraphics.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-
-          const block = this.add.rectangle(
-            px + TILE_SIZE / 2, py + TILE_SIZE / 2,
-            TILE_SIZE, TILE_SIZE
-          );
-          this.solidGroup.add(block);
-          block.visible = false;
-        } else if (tile === TILE_PLATFORM) {
-          const shade = (x + y) % 2 === 0 ? platColor : platColor2;
-          this.mapGraphics.fillStyle(shade, isCity ? 0.7 : 0.8);
-          this.mapGraphics.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-          this.mapGraphics.lineStyle(2, 0xffffff, 0.4);
-          this.mapGraphics.lineBetween(px, py + 2, px + TILE_SIZE, py + 2);
-          this.mapGraphics.lineStyle(1, shade, 1);
-          this.mapGraphics.strokeRect(px, py, TILE_SIZE, TILE_SIZE);
-
-          const plat = this.add.rectangle(
-            px + TILE_SIZE / 2, py + TILE_SIZE / 2,
-            TILE_SIZE, TILE_SIZE
-          );
-          this.solidGroup.add(plat);
-          plat.visible = false;
-        }
-      }
-    }
-
-    this.currentMap = mapName;
-    const mapPixelW = mapData.width * TILE_SIZE;
-    const mapPixelH = mapData.height * TILE_SIZE;
-    this.cameras.main.setBounds(0, 0, mapPixelW, mapPixelH);
-
-    if (isCity) {
+    if (mapName === 'city') {
       const wall = this.add.rectangle(mapPixelW + 2, mapPixelH / 2, 4, mapPixelH);
       this.boundaryGroup.add(wall);
       wall.visible = false;
@@ -252,9 +224,19 @@ export default class GameScene extends Phaser.Scene {
 
   _addPlayerColliders(player) {
     if (!player.hasPhysics) return;
-    this._solidCollider = this.physics.add.collider(player, this.solidGroup);
+    if (this.currentLayer) {
+      this._solidCollider = this.physics.add.collider(player, this.currentLayer, (p, tile) => {
+        if (tile.properties?.type === 'platform') {
+          if (p.body.velocity.y < 0 || p.y + 32 > tile.pixelY + 32) return false;
+        }
+        return true;
+      });
+    }
     this.physics.add.collider(player, this.enemyBodyGroup);
-    const isSafe = MAPS[this.currentMap]?.safe ?? true;
+
+    const isSafe = this.currentMapData
+      ? this.currentMapData.properties?.find(p => p.name === 'safe')?.value ?? true
+      : true;
     if (this._remoteCollider) {
       this.physics.world.removeCollider(this._remoteCollider);
     }
@@ -1060,7 +1042,7 @@ export default class GameScene extends Phaser.Scene {
 
     player.updateAnimation();
 
-    const mapData = MAPS[this.currentMap];
+    const mapData = this.currentMapData;
     if (mapData) {
       const mapW = mapData.width * TILE_SIZE;
       const mapH = mapData.height * TILE_SIZE;
@@ -1139,16 +1121,17 @@ export default class GameScene extends Phaser.Scene {
       this._rulerGfx.lineStyle(2, 0xffff00, 0.6);
       this._rulerGfx.strokeRect(tileX * TILE_SIZE, tileY * TILE_SIZE, TILE_SIZE, TILE_SIZE);
 
-      const mapData = MAPS[this.currentMap];
-      const tileType = mapData && tileX >= 0 && tileX < mapData.width && tileY >= 0 && tileY < mapData.height
-        ? mapData.tiles[tileY][tileX] : '?';
-      const typeNames = { 0: 'AIR', 1: 'SOLID', 2: 'PLATFORM' };
-
-      this._rulerText.setPosition(wx + 12, wy - 12);
-      this._rulerText.setText([
-        `Tile: (${tileX}, ${tileY})  ${typeNames[tileType] || tileType}`,
-        `Pixel: (${Math.round(wx)}, ${Math.round(wy)})`,
-      ].join('\n'));
+      const mapData = this.currentMapData;
+      if (mapData && tileX >= 0 && tileX < mapData.width && tileY >= 0 && tileY < mapData.height) {
+        const tile = this.currentLayer.getTileAt(tileX, tileY);
+        const tileProps = tile?.properties;
+        const type = tileProps?.type || (tile ? `GID ${tile.index}` : 'empty');
+        this._rulerText.setPosition(wx + 12, wy - 12);
+        this._rulerText.setText([
+          `Tile: (${tileX}, ${tileY})  ${type}`,
+          `Pixel: (${Math.round(wx)}, ${Math.round(wy)})`,
+        ].join('\n'));
+      }
     }
   }
 }

@@ -165,11 +165,11 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this.droppingThrough = true;
     this.y += 2;
     this.body.setVelocityY(150);
-    if (this.scene._solidCollider) {
-      this.scene._solidCollider.active = false;
+    if (this.scene.currentLayer) {
+      this.body.checkCollision.down = false;
       this.scene.time.delayedCall(DROP_THROUGH_MS, () => {
         this.droppingThrough = false;
-        if (this.scene._solidCollider) this.scene._solidCollider.active = true;
+        this.body.checkCollision.down = true;
       });
     } else {
       this.scene.time.delayedCall(DROP_THROUGH_MS, () => { this.droppingThrough = false; });
