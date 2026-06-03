@@ -223,7 +223,7 @@ wss.on('connection', (ws) => {
             await trackSave(supabase.from('characters').update({
               food: player.food,
               drink: player.drink,
-            }).eq('id', player.id);
+            }).eq('id', player.id));
           }
         }
       }
