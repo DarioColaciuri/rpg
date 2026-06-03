@@ -861,6 +861,7 @@ export class GameServer {
 
     const aTx = Math.floor(attacker.px / TILE_SIZE);
     const aTy = Math.floor(attacker.py / TILE_SIZE);
+    const facingRight = attacker.direction === 'right';
 
     let target = null;
     for (const [, p] of this.players) {
@@ -870,7 +871,8 @@ export class GameServer {
       const tTy = Math.floor(p.py / TILE_SIZE);
       const dx = Math.abs(tTx - aTx);
       const dy = Math.abs(tTy - aTy);
-      if (dx <= 1 && dy <= 1 && !(dx === 0 && dy === 0)) {
+      const inFront = facingRight ? (tTx > aTx) : (tTx < aTx);
+      if (dx <= 1 && dy <= 1 && inFront) {
         target = p;
         break;
       }
@@ -883,7 +885,8 @@ export class GameServer {
         const eTy = Math.floor(e.py / TILE_SIZE);
         const dx = Math.abs(eTx - aTx);
         const dy = Math.abs(eTy - aTy);
-        if (dx <= 1 && dy <= 1) {
+        const inFront = facingRight ? (eTx > aTx) : (eTx < aTx);
+        if (dx <= 1 && dy <= 1 && inFront) {
           attacker.stamina -= 1;
           e.hp = Math.max(0, e.hp - damage);
           this.sendTo(ws, { type: 'stats_update', ...this.getStats(attacker) });
