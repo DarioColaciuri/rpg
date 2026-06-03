@@ -18,18 +18,27 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
 
 const gameServer = new GameServer();
 
+const pendingSaves = new Set();
+
+function trackSave(promise) {
+  const p = promise.catch(() => {});
+  pendingSaves.add(p);
+  p.finally(() => pendingSaves.delete(p));
+  return promise;
+}
+
 async function saveInventory(supabase, playerId, inventory) {
   try {
-    await supabase.from('inventory_items').delete().eq('character_id', playerId);
+    await trackSave(supabase.from('inventory_items').delete().eq('character_id', playerId));
     if (inventory.length > 0) {
-      await supabase.from('inventory_items').insert(
+      await trackSave(supabase.from('inventory_items').insert(
         inventory.map(inv => ({
           character_id: playerId,
           slot: inv.slot,
           item_type: inv.itemType,
           quantity: inv.quantity,
         }))
-      );
+      ));
     }
   } catch (err) {
     console.error('Failed to save inventory:', err.message);
@@ -187,7 +196,7 @@ wss.on('connection', (ws) => {
         if (pId) {
           const player = gameServer.players.get(pId);
           if (player) {
-            await supabase.from('characters').update({ gold: player.gold }).eq('id', player.id);
+            await trackSave(supabase.from('characters').update({ gold: player.gold }).eq('id', player.id));
           }
         }
       }
@@ -211,7 +220,7 @@ wss.on('connection', (ws) => {
           await saveInventory(supabase, pId, gameServer.getInventory(pId));
           const player = gameServer.players.get(pId);
           if (player) {
-            await supabase.from('characters').update({
+            await trackSave(supabase.from('characters').update({
               food: player.food,
               drink: player.drink,
             }).eq('id', player.id);
@@ -229,7 +238,7 @@ wss.on('connection', (ws) => {
           await saveInventory(supabase, pId, gameServer.getInventory(pId));
           const player = gameServer.players.get(pId);
           if (player) {
-            await supabase.from('characters').update({ gold: player.gold }).eq('id', player.id);
+            await trackSave(supabase.from('characters').update({ gold: player.gold }).eq('id', player.id));
           }
         }
       }
@@ -244,7 +253,7 @@ wss.on('connection', (ws) => {
           await saveInventory(supabase, pId, gameServer.getInventory(pId));
           const player = gameServer.players.get(pId);
           if (player) {
-            await supabase.from('characters').update({ gold: player.gold }).eq('id', player.id);
+            await trackSave(supabase.from('characters').update({ gold: player.gold }).eq('id', player.id));
           }
         }
       }
@@ -274,7 +283,7 @@ wss.on('connection', (ws) => {
           updateData.map = 'city';
           updateData.hp = player.maxHp;
         }
-        await supabase.from('characters').update(updateData).eq('id', player.id);
+        await trackSave(supabase.from('characters').update(updateData).eq('id', player.id));
 
         await saveInventory(supabase, player.id, player.inventory || []);
       } catch (err) {
@@ -288,3 +297,21 @@ const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
   console.log(`RPG Server running on port ${PORT}`);
 });
+
+async function shutdown() {
+  console.log('\nShutting down...');
+  wss.close();
+  if (pendingSaves.size > 0) {
+    console.log(`Waiting for ${pendingSaves.size} pending save(s)...`);
+    await Promise.race([
+      Promise.allSettled([...pendingSaves]),
+      new Promise(r => setTimeout(r, 5000)),
+    ]);
+  }
+  httpServer.close();
+  console.log('Shutdown complete.');
+  process.exit(0);
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
