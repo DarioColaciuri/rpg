@@ -57,6 +57,15 @@ const httpServer = createServer((req, res) => {
 
 const wss = new WebSocketServer({ server: httpServer });
 
+wss.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} in use, retrying in 2s...`);
+    setTimeout(() => httpServer.listen(PORT, '0.0.0.0', () => {
+      console.log(`RPG Server running on port ${PORT}`);
+    }), 2000);
+  }
+});
+
 wss.on('connection', (ws) => {
   console.log('New connection');
   let authenticated = false;
@@ -275,13 +284,15 @@ wss.on('connection', (ws) => {
 });
 
 const PORT = process.env.PORT || 3001;
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`RPG Server running on port ${PORT}`);
 });
 
 async function shutdown() {
   console.log('\nShutting down...');
-  wss.close();
+  await new Promise((resolve) => {
+    wss.close(resolve);
+  });
   if (pendingSaves.size > 0) {
     console.log(`Waiting for ${pendingSaves.size} pending save(s)...`);
     await Promise.race([
@@ -289,7 +300,7 @@ async function shutdown() {
       new Promise(r => setTimeout(r, 5000)),
     ]);
   }
-  httpServer.close();
+  await new Promise((resolve) => httpServer.close(resolve));
   console.log('Shutdown complete.');
   process.exit(0);
 }
