@@ -44,3 +44,36 @@ CREATE POLICY "Users can delete own characters"
 -- Index for faster lookups
 CREATE INDEX IF NOT EXISTS idx_characters_user_id ON characters(user_id);
 CREATE INDEX IF NOT EXISTS idx_characters_name ON characters(name);
+
+-- Inventory items table
+CREATE TABLE IF NOT EXISTS inventory_items (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  character_id UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  slot INTEGER NOT NULL CHECK (slot >= 0),
+  item_type TEXT NOT NULL,
+  quantity INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(character_id, slot)
+);
+
+-- RLS for inventory_items
+ALTER TABLE inventory_items ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own inventory"
+  ON inventory_items FOR SELECT
+  USING (auth.uid() = (SELECT user_id FROM characters WHERE id = character_id));
+
+CREATE POLICY "Users can insert own inventory"
+  ON inventory_items FOR INSERT
+  WITH CHECK (auth.uid() = (SELECT user_id FROM characters WHERE id = character_id));
+
+CREATE POLICY "Users can update own inventory"
+  ON inventory_items FOR UPDATE
+  USING (auth.uid() = (SELECT user_id FROM characters WHERE id = character_id));
+
+CREATE POLICY "Users can delete own inventory"
+  ON inventory_items FOR DELETE
+  USING (auth.uid() = (SELECT user_id FROM characters WHERE id = character_id));
+
+-- Index for faster inventory lookups
+CREATE INDEX IF NOT EXISTS idx_inventory_character ON inventory_items(character_id);

@@ -18,6 +18,24 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
 
 const gameServer = new GameServer();
 
+async function saveInventory(supabase, playerId, inventory) {
+  try {
+    await supabase.from('inventory_items').delete().eq('character_id', playerId);
+    if (inventory.length > 0) {
+      await supabase.from('inventory_items').insert(
+        inventory.map(inv => ({
+          character_id: playerId,
+          slot: inv.slot,
+          item_type: inv.itemType,
+          quantity: inv.quantity,
+        }))
+      );
+    }
+  } catch (err) {
+    console.error('Failed to save inventory:', err.message);
+  }
+}
+
 const httpServer = createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('RPG Server');
@@ -78,10 +96,24 @@ wss.on('connection', (ws) => {
       }
 
       const hasSavedPos = character.x != null && character.y != null && character.map;
+
+      const { data: invRows, error: invError } = await supabase
+        .from('inventory_items')
+        .select('*')
+        .eq('character_id', msg.characterId)
+        .order('slot');
+
+      const inventory = invRows ? invRows.map(row => ({
+        slot: row.slot,
+        itemType: row.item_type,
+        quantity: row.quantity,
+      })) : [];
+
       const player = gameServer.addPlayer(ws, character,
         hasSavedPos ? character.x : null,
         hasSavedPos ? character.y : null,
-        hasSavedPos ? character.map : null
+        hasSavedPos ? character.map : null,
+        inventory
       );
       const playersOnMap = gameServer.getPlayersOnMap(player.map, player.id);
 
@@ -91,6 +123,7 @@ wss.on('connection', (ws) => {
         map: player.map,
         players: playersOnMap,
         stats: gameServer.getStats(player),
+        groundItems: gameServer.getGroundItemsOnMap(player.map),
       });
 
       gameServer.broadcastToMap(player.map, {
@@ -121,6 +154,42 @@ wss.on('connection', (ws) => {
       gameServer.handleChat(ws, msg.text);
       return;
     }
+
+    if (msg.type === 'pickup_item') {
+      const result = gameServer.handlePickupItem(ws, msg.groundItemId);
+      if (result?.inventoryChanged) {
+        const pId = gameServer.wsToPlayer.get(ws);
+        if (pId) await saveInventory(supabase, pId, gameServer.getInventory(pId));
+      }
+      return;
+    }
+
+    if (msg.type === 'drop_item') {
+      const result = gameServer.handleDropItem(ws, msg.slot);
+      if (result?.inventoryChanged) {
+        const pId = gameServer.wsToPlayer.get(ws);
+        if (pId) await saveInventory(supabase, pId, gameServer.getInventory(pId));
+      }
+      return;
+    }
+
+    if (msg.type === 'use_item') {
+      const result = gameServer.handleUseItem(ws, msg.slot);
+      if (result?.inventoryChanged || result?.statsChanged) {
+        const pId = gameServer.wsToPlayer.get(ws);
+        if (pId) {
+          await saveInventory(supabase, pId, gameServer.getInventory(pId));
+          const player = gameServer.players.get(pId);
+          if (player) {
+            await supabase.from('characters').update({
+              food: player.food,
+              drink: player.drink,
+            }).eq('id', player.id);
+          }
+        }
+      }
+      return;
+    }
   });
 
   ws.on('close', async () => {
@@ -137,9 +206,13 @@ wss.on('connection', (ws) => {
           map: player.map,
           x: Math.round(player.px),
           y: Math.round(player.py),
+          food: player.food,
+          drink: player.drink,
         }).eq('id', player.id);
+
+        await saveInventory(supabase, player.id, player.inventory || []);
       } catch (err) {
-        console.error('Failed to save position:', err.message);
+        console.error('Failed to save data:', err.message);
       }
     }
   });

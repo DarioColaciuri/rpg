@@ -12,6 +12,10 @@ export default function GameUI({
   selectedSpell,
   onSelectSpell,
   onLeave,
+  inventory,
+  selectedSlot,
+  onSelectSlot,
+  onUseSlot,
 }) {
   return (
     <div className="game-ui-overlay">
@@ -30,7 +34,12 @@ export default function GameUI({
         />
       </div>
       <div className="game-ui-right">
-        <InventoryPanel />
+        <InventoryPanel
+          inventory={inventory}
+          selectedSlot={selectedSlot}
+          onSelectSlot={onSelectSlot}
+          onUseSlot={onUseSlot}
+        />
       </div>
     </div>
   );

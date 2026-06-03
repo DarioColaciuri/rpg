@@ -4,6 +4,7 @@ class GameSocket {
     this.listeners = [];
     this.connected = false;
     this.userId = null;
+    this.selectedSlot = null;
   }
 
   connect(token) {
@@ -47,7 +48,9 @@ class GameSocket {
 
   disconnect() {
     if (this.ws) {
-      this.ws.close();
+      if (this.ws.readyState === WebSocket.OPEN) {
+        this.ws.close();
+      }
       this.ws = null;
     }
     this.connected = false;

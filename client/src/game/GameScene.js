@@ -9,6 +9,11 @@ const PLAYER_H = 64;
 const SYNC_INTERVAL = 80;
 const SYNC_MIN_DIST = 3;
 
+const ITEM_COLORS = {
+  apple: 0xff4444,
+  water: 0x4444ff,
+};
+
 export default class GameScene extends Phaser.Scene {
   constructor() {
     super({ key: 'GameScene' });
@@ -27,6 +32,7 @@ export default class GameScene extends Phaser.Scene {
     this._lastSentY = 0;
     this._movePending = null;
     this._transitioning = false;
+    this.groundItemSprites = new Map();
   }
 
   setMyId(id) {
@@ -53,6 +59,21 @@ export default class GameScene extends Phaser.Scene {
     }, false);
     this.ctrlKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.CTRL, false);
     this.shiftKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT, false);
+    this.fKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F);
+    this.tKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.T);
+    this.uKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.U);
+    this.numKeys = [
+      this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ONE),
+      this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.TWO),
+      this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.THREE),
+      this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.FOUR),
+      this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.FIVE),
+      this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SIX),
+      this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SEVEN),
+      this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.EIGHT),
+      this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.NINE),
+      this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ZERO),
+    ];
     this.input.keyboard.clearCaptures();
 
     this.remoteGroup = this.add.group();
@@ -98,6 +119,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.solidGroup) this.solidGroup.destroy(true, true);
     if (this.boundaryGroup) this.boundaryGroup.destroy(true, true);
     if (this.mapGraphics) this.mapGraphics.destroy();
+    this.clearGroundItems();
 
     this.solidGroup = this.physics.add.staticGroup();
     this.boundaryGroup = this.physics.add.staticGroup();
@@ -194,6 +216,31 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  renderGroundItem(item) {
+    const gfx = this.add.graphics();
+    const color = ITEM_COLORS[item.itemType] || 0xffffff;
+    const size = 20;
+    gfx.fillStyle(color, 1);
+    gfx.fillRect(item.px - size / 2, item.py - size / 2, size, size);
+    gfx.lineStyle(1, 0xffffff, 0.3);
+    gfx.strokeRect(item.px - size / 2, item.py - size / 2, size, size);
+    gfx.setDepth(2);
+    this.groundItemSprites.set(item.id, { gfx, data: item });
+  }
+
+  removeGroundItem(id) {
+    const entry = this.groundItemSprites.get(id);
+    if (entry) {
+      entry.gfx.destroy();
+      this.groundItemSprites.delete(id);
+    }
+  }
+
+  clearGroundItems() {
+    for (const [, entry] of this.groundItemSprites) entry.gfx.destroy();
+    this.groundItemSprites.clear();
+  }
+
   handleServerMessage(msg) {
     switch (msg.type) {
       case 'world_state': {
@@ -253,6 +300,11 @@ export default class GameScene extends Phaser.Scene {
           this._lastSentY = spy;
         }
         this.bringMyPlayerToTop();
+
+        if (msg.groundItems) {
+          this.clearGroundItems();
+          for (const item of msg.groundItems) this.renderGroundItem(item);
+        }
         break;
       }
       case 'player_joined': {
@@ -337,6 +389,14 @@ export default class GameScene extends Phaser.Scene {
         }
         break;
       }
+      case 'ground_item_added': {
+        this.renderGroundItem(msg);
+        break;
+      }
+      case 'ground_item_removed': {
+        this.removeGroundItem(msg.id);
+        break;
+      }
       case 'map_change': {
         this._transitioning = false;
         this.loadMap(msg.map);
@@ -388,6 +448,35 @@ export default class GameScene extends Phaser.Scene {
 
     if (Phaser.Input.Keyboard.JustDown(this.ctrlKey)) {
       gameSocket.send('attack');
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.fKey)) {
+      for (const [id, entry] of this.groundItemSprites) {
+        const dx = Math.abs(entry.data.px - player.x);
+        const dy = Math.abs(entry.data.py - player.y);
+        if (dx < 48 && dy < 64) {
+          gameSocket.send('pickup_item', { groundItemId: id });
+          break;
+        }
+      }
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.tKey)) {
+      if (gameSocket.selectedSlot != null) {
+        gameSocket.send('drop_item', { slot: gameSocket.selectedSlot });
+      }
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.uKey)) {
+      if (gameSocket.selectedSlot != null) {
+        gameSocket.send('use_item', { slot: gameSocket.selectedSlot });
+      }
+    }
+
+    for (let i = 0; i < 10; i++) {
+      if (Phaser.Input.Keyboard.JustDown(this.numKeys[i])) {
+        gameSocket.send('use_item', { slot: i });
+      }
     }
 
     player.isRunning = this.shiftKey.isDown;

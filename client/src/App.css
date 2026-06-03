@@ -500,11 +500,50 @@ body {
 }
 
 .inv-slot {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   background: #0a0a1a;
   border: 1px solid #333;
   border-radius: 3px;
+  position: relative;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.inv-slot:hover {
+  border-color: #666;
+}
+.inv-slot-selected {
+  border-color: #ffcc44;
+  box-shadow: 0 0 6px rgba(255, 204, 68, 0.5);
+}
+.inv-slot-filled {
+  background: #111122;
+}
+
+.inv-item-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 2px;
+}
+
+.inv-item-qty {
+  position: absolute;
+  bottom: 1px;
+  right: 2px;
+  font-size: 9px;
+  color: #fff;
+  text-shadow: 0 0 2px #000;
+  font-weight: bold;
+}
+
+.inv-slot-key {
+  position: absolute;
+  top: 0;
+  left: 2px;
+  font-size: 8px;
+  color: #555;
 }
 
 /* Leave Button */

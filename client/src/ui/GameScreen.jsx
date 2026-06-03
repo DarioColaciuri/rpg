@@ -11,6 +11,8 @@ export default function GameScreen({ character, session, onLeave }) {
   const [stats, setStats] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
   const [wsError, setWsError] = useState('');
+  const [inventory, setInventory] = useState([]);
+  const [selectedSlot, setSelectedSlot] = useState(null);
 
   useEffect(() => {
     gameSocket.connect(session.access_token);
@@ -22,6 +24,7 @@ export default function GameScreen({ character, session, onLeave }) {
       parent: containerRef.current,
       backgroundColor: '#1a1a2e',
       scene: GameScene,
+      banner: false,
       physics: {
         default: 'arcade',
         arcade: { gravity: { y: 600 }, debug: false },
@@ -54,9 +57,13 @@ export default function GameScreen({ character, session, onLeave }) {
       sceneRef.current?.handleServerMessage(msg);
       if (msg.type === 'stats_update') {
         setStats(msg);
+        if (msg.inventory) setInventory(msg.inventory);
       }
       if (msg.type === 'world_state') {
-        if (msg.stats) setStats(msg.stats);
+        if (msg.stats) {
+          setStats(msg.stats);
+          if (msg.stats.inventory) setInventory(msg.stats.inventory);
+        }
       }
       if (msg.type === 'chat_message') {
         setChatMessages((prev) => [...prev, { id: msg.playerId, name: msg.name, text: msg.text }]);
@@ -94,6 +101,18 @@ export default function GameScreen({ character, session, onLeave }) {
     gameSocket.selectedSpell = gameSocket.selectedSpell === spell ? null : spell;
   };
 
+  const handleSelectSlot = (slot) => {
+    const newSlot = selectedSlot === slot ? null : slot;
+    setSelectedSlot(newSlot);
+    gameSocket.selectedSlot = newSlot;
+  };
+
+  const handleUseSlot = (slot) => {
+    gameSocket.send('use_item', { slot });
+    setSelectedSlot(null);
+    gameSocket.selectedSlot = null;
+  };
+
   return (
     <div className="game-container">
       <div ref={containerRef} className="game-canvas" />
@@ -106,6 +125,10 @@ export default function GameScreen({ character, session, onLeave }) {
         selectedSpell={gameSocket.selectedSpell}
         onSelectSpell={handleSelectSpell}
         onLeave={onLeave}
+        inventory={inventory}
+        selectedSlot={selectedSlot}
+        onSelectSlot={handleSelectSlot}
+        onUseSlot={handleUseSlot}
       />
     </div>
   );

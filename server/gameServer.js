@@ -14,6 +14,33 @@ const PLAYER_H = 64;
 const MOVE_COOLDOWN = 80;
 const MAX_MOVE_DIST = 80;
 
+const ITEM_DEFS = {
+  apple: { name: 'Apple', stat: 'food', amount: 10 },
+  water: { name: 'Water', stat: 'drink', amount: 10 },
+};
+
+const MAX_INVENTORY_SLOTS = 12;
+const STAT_DRAIN_INTERVAL = 10000;
+const STAT_DRAIN_AMOUNT = 10;
+const PICKUP_RANGE = 48;
+
+const DEFAULT_GROUND_ITEMS = {
+  city: [
+    { px: 300, py: 820, itemType: 'apple' },
+    { px: 600, py: 820, itemType: 'apple' },
+    { px: 900, py: 820, itemType: 'water' },
+    { px: 1200, py: 820, itemType: 'water' },
+    { px: 450, py: 820, itemType: 'apple' },
+  ],
+  forest: [
+    { px: 300, py: 820, itemType: 'apple' },
+    { px: 700, py: 820, itemType: 'water' },
+    { px: 1100, py: 820, itemType: 'apple' },
+    { px: 1300, py: 820, itemType: 'water' },
+    { px: 500, py: 820, itemType: 'water' },
+  ],
+};
+
 export function calcStats(charClass, race) {
   const base = BASE_STATS[charClass];
   const bonus = RACE_BONUS[race];
@@ -35,7 +62,11 @@ export class GameServer {
   constructor() {
     this.players = new Map();
     this.wsToPlayer = new Map();
+    this.groundItems = new Map();
+    this._nextGroundItemId = 1;
+    this.initGroundItems();
     this.startStaminaRegen();
+    this.startStatDrain();
   }
 
   startStaminaRegen() {
@@ -46,6 +77,37 @@ export class GameServer {
         }
       }
     }, 1000);
+  }
+
+  initGroundItems() {
+    for (const [mapName, items] of Object.entries(DEFAULT_GROUND_ITEMS)) {
+      for (const item of items) {
+        const id = `${mapName}_${this._nextGroundItemId++}`;
+        this.groundItems.set(id, { id, map: mapName, px: item.px, py: item.py, itemType: item.itemType });
+      }
+    }
+  }
+
+  getGroundItemsOnMap(mapName) {
+    const result = [];
+    for (const [, item] of this.groundItems) {
+      if (item.map === mapName) result.push(item);
+    }
+    return result;
+  }
+
+  startStatDrain() {
+    setInterval(() => {
+      for (const [, player] of this.players) {
+        let changed = false;
+        if (player.food > 0) { player.food = Math.max(0, player.food - STAT_DRAIN_AMOUNT); changed = true; }
+        if (player.drink > 0) { player.drink = Math.max(0, player.drink - STAT_DRAIN_AMOUNT); changed = true; }
+        if (changed) {
+          const ws = this.getWsByPlayerId(player.id);
+          if (ws) this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
+        }
+      }
+    }, STAT_DRAIN_INTERVAL);
   }
 
   playerData(player) {
@@ -92,6 +154,7 @@ export class GameServer {
       level: player.level,
       xp: player.xp,
       headVariant: player.headVariant ?? 1,
+      inventory: player.inventory || [],
     };
   }
 
@@ -114,7 +177,7 @@ export class GameServer {
     return { px: spawnPx, py: spawnPy };
   }
 
-  addPlayer(ws, character, savedPx = null, savedPy = null, savedMap = null) {
+  addPlayer(ws, character, savedPx = null, savedPy = null, savedMap = null, inventory = []) {
     const stats = calcStats(character.class, character.race);
 
     const spawn = this.findSpawn(character.map || 'city');
@@ -154,6 +217,7 @@ export class GameServer {
       lastMoveTime: 0,
       selectedSpell: null,
       headVariant: character.head_variant ?? 1,
+      inventory: inventory,
     };
 
     this.players.set(player.id, player);
@@ -169,6 +233,85 @@ export class GameServer {
     this.players.delete(playerId);
     this.wsToPlayer.delete(ws);
     return player;
+  }
+
+  getInventory(playerId) {
+    const player = this.players.get(playerId);
+    if (!player) return [];
+    return player.inventory || [];
+  }
+
+  handlePickupItem(ws, groundItemId) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const player = this.players.get(playerId);
+    if (!player) return;
+
+    const groundItem = this.groundItems.get(groundItemId);
+    if (!groundItem) { this.sendTo(ws, { type: 'error', msg: 'Item not found' }); return; }
+    if (groundItem.map !== player.map) { this.sendTo(ws, { type: 'error', msg: 'Item not on this map' }); return; }
+
+    const dx = Math.abs(groundItem.px - player.px);
+    const dy = Math.abs(groundItem.py - player.py);
+    if (dx > PICKUP_RANGE || dy > PICKUP_RANGE) { this.sendTo(ws, { type: 'error', msg: 'Too far from item' }); return; }
+
+    let targetSlot = -1;
+    for (let i = 0; i < MAX_INVENTORY_SLOTS; i++) {
+      const existing = player.inventory.find(inv => inv.slot === i);
+      if (!existing) { if (targetSlot === -1) targetSlot = i; }
+      else if (existing.itemType === groundItem.itemType) { targetSlot = i; break; }
+    }
+    if (targetSlot === -1) { this.sendTo(ws, { type: 'error', msg: 'Inventory full' }); return; }
+
+    const existing = player.inventory.find(inv => inv.slot === targetSlot);
+    if (existing) { existing.quantity += 1; }
+    else { player.inventory.push({ slot: targetSlot, itemType: groundItem.itemType, quantity: 1 }); }
+
+    this.groundItems.delete(groundItemId);
+    this.broadcastToMap(player.map, { type: 'ground_item_removed', id: groundItemId });
+    this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
+    return { inventoryChanged: true };
+  }
+
+  handleDropItem(ws, slot) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const player = this.players.get(playerId);
+    if (!player) return;
+
+    const invItem = player.inventory.find(inv => inv.slot === slot);
+    if (!invItem) { this.sendTo(ws, { type: 'error', msg: 'No item in slot' }); return; }
+
+    invItem.quantity -= 1;
+    if (invItem.quantity <= 0) player.inventory = player.inventory.filter(inv => inv.slot !== slot);
+
+    const id = `${player.map}_${this._nextGroundItemId++}`;
+    this.groundItems.set(id, { id, map: player.map, px: player.px, py: player.py, itemType: invItem.itemType });
+    this.broadcastToMap(player.map, { type: 'ground_item_added', id, map: player.map, px: player.px, py: player.py, itemType: invItem.itemType });
+    this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
+    return { inventoryChanged: true };
+  }
+
+  handleUseItem(ws, slot) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const player = this.players.get(playerId);
+    if (!player) return;
+
+    const invItem = player.inventory.find(inv => inv.slot === slot);
+    if (!invItem) { this.sendTo(ws, { type: 'error', msg: 'No item in slot' }); return; }
+
+    const def = ITEM_DEFS[invItem.itemType];
+    if (!def) { this.sendTo(ws, { type: 'error', msg: 'Unknown item' }); return; }
+
+    if (def.stat === 'food') player.food = Math.min(player.food + def.amount, player.maxFood ?? 100);
+    else if (def.stat === 'drink') player.drink = Math.min(player.drink + def.amount, player.maxDrink ?? 100);
+
+    invItem.quantity -= 1;
+    if (invItem.quantity <= 0) player.inventory = player.inventory.filter(inv => inv.slot !== slot);
+
+    this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
+    return { inventoryChanged: true, statsChanged: true };
   }
 
   sendTo(ws, msg) {
@@ -226,6 +369,7 @@ export class GameServer {
           map: player.map,
           players: newMapPlayers,
           stats: this.getStats(player),
+          groundItems: this.getGroundItemsOnMap(player.map),
         });
         this.broadcastToMap(player.map, { type: 'player_joined', player: this.playerData(player) }, ws);
         return;

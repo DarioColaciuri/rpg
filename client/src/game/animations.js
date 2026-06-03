@@ -72,12 +72,17 @@ export function preloadSpritesheets(scene) {
 }
 
 export function createAnimations(scene) {
+  function getFrameCount(texture) {
+    if (!texture) return 0;
+    let count = 0;
+    while (texture.has(count) && count < 50) count++;
+    return count;
+  }
+
   for (const key of SHEETS) {
     if (scene.anims.exists(key)) continue;
-
     const texture = scene.textures.get(key);
-    const frameCount = texture ? Object.keys(texture.frames).length : 0;
-
+    const frameCount = getFrameCount(texture);
     if (frameCount > 0) {
       scene.anims.create({
         key,
@@ -90,10 +95,8 @@ export function createAnimations(scene) {
 
   for (const key of IDLE_SHEETS) {
     if (scene.anims.exists(key)) continue;
-
     const texture = scene.textures.get(key);
-    const frameCount = texture ? Object.keys(texture.frames).length : 0;
-
+    const frameCount = getFrameCount(texture);
     if (frameCount > 0) {
       scene.anims.create({
         key,
@@ -106,10 +109,8 @@ export function createAnimations(scene) {
 
   for (const key of HEAD_IDLE_SHEETS) {
     if (scene.anims.exists(key)) continue;
-
     const texture = scene.textures.get(key);
-    const frameCount = texture ? Object.keys(texture.frames).length : 0;
-
+    const frameCount = getFrameCount(texture);
     if (frameCount > 0) {
       scene.anims.create({
         key,
