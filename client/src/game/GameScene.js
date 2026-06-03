@@ -38,6 +38,8 @@ export default class GameScene extends Phaser.Scene {
     this._lastNpcClick = { id: null, time: 0 };
     this._npcClickTimer = null;
     this._onOpenShop = null;
+    this._localStamina = 20;
+    this._lastRunTick = 0;
   }
 
   setMyId(id) {
@@ -482,6 +484,10 @@ export default class GameScene extends Phaser.Scene {
         }
         break;
       }
+      case 'stats_update': {
+        this._localStamina = msg.stamina ?? 0;
+        break;
+      }
       case 'ground_item_added': {
         this.renderGroundItem(msg);
         break;
@@ -572,7 +578,14 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    player.isRunning = this.shiftKey.isDown;
+    player.isRunning = this.shiftKey.isDown && this._localStamina > 0;
+
+    if (this.shiftKey.isDown && this._localStamina > 0) {
+      if (time - this._lastRunTick > 100) {
+        this._lastRunTick = time;
+        gameSocket.send('run');
+      }
+    }
 
     if (this.cursors.a.isDown) {
       player.moveLeft();

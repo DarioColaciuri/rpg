@@ -14,6 +14,9 @@ const PLAYER_H = 64;
 const MOVE_COOLDOWN = 80;
 const MAX_MOVE_DIST = 80;
 
+const RUN_CONSUME_AMOUNT = 2;
+const RUN_TICK_MS = 100;
+
 const ITEM_DEFS = {
   apple: { name: 'Apple', stat: 'food', amount: 10 },
   water: { name: 'Water', stat: 'drink', amount: 10 },
@@ -79,8 +82,10 @@ export class GameServer {
   startStaminaRegen() {
     setInterval(() => {
       for (const [, p] of this.players) {
-        if (p.stamina < p.maxStamina) {
+        if (p.food >= 10 && p.drink >= 10 && p.stamina < p.maxStamina) {
           p.stamina = Math.min(p.stamina + 1, p.maxStamina);
+          const ws = this.getWsByPlayerId(p.id);
+          if (ws) this.sendTo(ws, { type: 'stats_update', ...this.getStats(p) });
         }
       }
     }, 1000);
@@ -391,6 +396,17 @@ export class GameServer {
 
     this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
     return { inventoryChanged: true, statsChanged: true };
+  }
+
+  handleRun(ws) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const player = this.players.get(playerId);
+    if (!player) return;
+
+    if (player.stamina <= 0) return;
+    player.stamina = Math.max(0, player.stamina - RUN_CONSUME_AMOUNT);
+    this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
   }
 
   sendTo(ws, msg) {

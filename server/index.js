@@ -146,6 +146,11 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (msg.type === 'run') {
+      gameServer.handleRun(ws);
+      return;
+    }
+
     if (msg.type === 'cast_spell') {
       gameServer.handleCastSpell(ws, msg.targetId);
       return;
