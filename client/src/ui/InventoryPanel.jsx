@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useCallback } from 'react';
 
 const ITEM_DEFS = {
   apple: { name: 'Apple', color: '#cc4444' },
@@ -6,8 +6,22 @@ const ITEM_DEFS = {
 };
 
 const TOTAL_SLOTS = 12;
+const DBL_CLICK_MS = 300;
 
 export default function InventoryPanel({ inventory, selectedSlot, onSelectSlot, onUseSlot }) {
+  const lastClick = useRef({ slot: -1, time: 0 });
+
+  const handleClick = useCallback((slot) => {
+    const now = Date.now();
+    if (lastClick.current.slot === slot && now - lastClick.current.time < DBL_CLICK_MS) {
+      lastClick.current = { slot: -1, time: 0 };
+      onUseSlot(slot);
+    } else {
+      lastClick.current = { slot, time: now };
+      onSelectSlot(slot);
+    }
+  }, [onSelectSlot, onUseSlot]);
+
   const slots = Array.from({ length: TOTAL_SLOTS }, (_, i) => {
     const item = inventory?.find(inv => inv.slot === i);
     return { slot: i, item };
@@ -21,8 +35,7 @@ export default function InventoryPanel({ inventory, selectedSlot, onSelectSlot, 
           <div
             key={slot}
             className={`inv-slot ${selectedSlot === slot ? 'inv-slot-selected' : ''} ${item ? 'inv-slot-filled' : ''}`}
-            onClick={() => onSelectSlot(slot)}
-            onDoubleClick={() => { onUseSlot(slot); }}
+            onClick={() => handleClick(slot)}
             title={item ? `${ITEM_DEFS[item.itemType]?.name || item.itemType}${item.quantity > 1 ? ` x${item.quantity}` : ''}` : `Slot ${slot + 1}`}
           >
             {item && (

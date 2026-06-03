@@ -17,6 +17,7 @@ const MAX_MOVE_DIST = 80;
 const ITEM_DEFS = {
   apple: { name: 'Apple', stat: 'food', amount: 10 },
   water: { name: 'Water', stat: 'drink', amount: 10 },
+  gold_pile: { name: 'Gold', type: 'gold' },
 };
 
 const MAX_INVENTORY_SLOTS = 12;
@@ -26,18 +27,24 @@ const PICKUP_RANGE = 48;
 
 const DEFAULT_GROUND_ITEMS = {
   city: [
-    { px: 300, py: 820, itemType: 'apple' },
-    { px: 600, py: 820, itemType: 'apple' },
-    { px: 900, py: 820, itemType: 'water' },
-    { px: 1200, py: 820, itemType: 'water' },
-    { px: 450, py: 820, itemType: 'apple' },
+    { px: 850, py: 790, itemType: 'gold_pile', amount: 99999 },
   ],
-  forest: [
-    { px: 300, py: 820, itemType: 'apple' },
-    { px: 700, py: 820, itemType: 'water' },
-    { px: 1100, py: 820, itemType: 'apple' },
-    { px: 1300, py: 820, itemType: 'water' },
-    { px: 500, py: 820, itemType: 'water' },
+  forest: [],
+};
+
+const SHOP_PRICES = {
+  apple: 10,
+  water: 10,
+};
+
+const SELL_PRICES = {
+  apple: 5,
+  water: 5,
+};
+
+const NPCS = {
+  city: [
+    { id: 'merchant_city', name: 'Merchant', px: 800, py: 800, color: 0x44cc44, shop: true },
   ],
 };
 
@@ -83,7 +90,7 @@ export class GameServer {
     for (const [mapName, items] of Object.entries(DEFAULT_GROUND_ITEMS)) {
       for (const item of items) {
         const id = `${mapName}_${this._nextGroundItemId++}`;
-        this.groundItems.set(id, { id, map: mapName, px: item.px, py: item.py, itemType: item.itemType });
+        this.groundItems.set(id, { id, map: mapName, px: item.px, py: item.py, itemType: item.itemType, amount: item.amount ?? 1 });
       }
     }
   }
@@ -94,6 +101,10 @@ export class GameServer {
       if (item.map === mapName) result.push(item);
     }
     return result;
+  }
+
+  getNpcsOnMap(mapName) {
+    return NPCS[mapName] || [];
   }
 
   startStatDrain() {
@@ -151,6 +162,7 @@ export class GameServer {
       maxStamina: player.maxStamina,
       food: player.food,
       drink: player.drink,
+      gold: player.gold ?? 0,
       level: player.level,
       xp: player.xp,
       headVariant: player.headVariant ?? 1,
@@ -209,6 +221,7 @@ export class GameServer {
       maxStamina: character.max_stamina ?? stats.maxStamina,
       food: character.food ?? 100,
       drink: character.drink ?? 100,
+      gold: character.gold ?? 0,
       level: character.level ?? 1,
       xp: character.xp ?? 0,
       map: useMap,
@@ -254,6 +267,17 @@ export class GameServer {
     const dx = Math.abs(groundItem.px - player.px);
     const dy = Math.abs(groundItem.py - player.py);
     if (dx > PICKUP_RANGE || dy > PICKUP_RANGE) { this.sendTo(ws, { type: 'error', msg: 'Too far from item' }); return; }
+
+    const def = ITEM_DEFS[groundItem.itemType];
+    if (!def) { this.sendTo(ws, { type: 'error', msg: 'Unknown item' }); return; }
+
+    if (def.type === 'gold') {
+      player.gold = (player.gold || 0) + (groundItem.amount || 1);
+      this.groundItems.delete(groundItemId);
+      this.broadcastToMap(player.map, { type: 'ground_item_removed', id: groundItemId });
+      this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
+      return { goldChanged: true };
+    }
 
     let targetSlot = -1;
     for (let i = 0; i < MAX_INVENTORY_SLOTS; i++) {
@@ -308,6 +332,61 @@ export class GameServer {
     else if (def.stat === 'drink') player.drink = Math.min(player.drink + def.amount, player.maxDrink ?? 100);
 
     invItem.quantity -= 1;
+    if (invItem.quantity <= 0) player.inventory = player.inventory.filter(inv => inv.slot !== slot);
+
+    this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
+    return { inventoryChanged: true, statsChanged: true };
+  }
+
+  handleBuyItem(ws, itemType, quantity = 1) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const player = this.players.get(playerId);
+    if (!player) return;
+
+    quantity = Math.max(1, Math.floor(quantity) || 1);
+
+    const price = SHOP_PRICES[itemType];
+    if (!price) { this.sendTo(ws, { type: 'error', msg: 'Item not sold here' }); return; }
+
+    const totalPrice = price * quantity;
+    if ((player.gold || 0) < totalPrice) { this.sendTo(ws, { type: 'error', msg: 'Not enough gold' }); return; }
+
+    let targetSlot = -1;
+    for (let i = 0; i < MAX_INVENTORY_SLOTS; i++) {
+      const existing = player.inventory.find(inv => inv.slot === i);
+      if (!existing) { if (targetSlot === -1) targetSlot = i; }
+      else if (existing.itemType === itemType) { targetSlot = i; break; }
+    }
+    if (targetSlot === -1) { this.sendTo(ws, { type: 'error', msg: 'Inventory full' }); return; }
+
+    player.gold -= totalPrice;
+
+    const existing = player.inventory.find(inv => inv.slot === targetSlot);
+    if (existing) { existing.quantity = Math.min((existing.quantity || 0) + quantity, 99999); }
+    else { player.inventory.push({ slot: targetSlot, itemType, quantity }); }
+
+    this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
+    return { inventoryChanged: true, statsChanged: true };
+  }
+
+  handleSellItem(ws, slot, quantity = 1) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const player = this.players.get(playerId);
+    if (!player) return;
+
+    const invItem = player.inventory.find(inv => inv.slot === slot);
+    if (!invItem) { this.sendTo(ws, { type: 'error', msg: 'No item in slot' }); return; }
+
+    const price = SELL_PRICES[invItem.itemType] || 0;
+    if (price <= 0) { this.sendTo(ws, { type: 'error', msg: 'Cannot sell this item' }); return; }
+
+    quantity = Math.min(Math.max(1, Math.floor(quantity) || 1), invItem.quantity);
+
+    player.gold = (player.gold || 0) + (price * quantity);
+
+    invItem.quantity -= quantity;
     if (invItem.quantity <= 0) player.inventory = player.inventory.filter(inv => inv.slot !== slot);
 
     this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
@@ -370,6 +449,7 @@ export class GameServer {
           players: newMapPlayers,
           stats: this.getStats(player),
           groundItems: this.getGroundItemsOnMap(player.map),
+          npcs: this.getNpcsOnMap(player.map),
         });
         this.broadcastToMap(player.map, { type: 'player_joined', player: this.playerData(player) }, ws);
         return;

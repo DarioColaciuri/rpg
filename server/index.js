@@ -124,6 +124,7 @@ wss.on('connection', (ws) => {
         players: playersOnMap,
         stats: gameServer.getStats(player),
         groundItems: gameServer.getGroundItemsOnMap(player.map),
+        npcs: gameServer.getNpcsOnMap(player.map),
       });
 
       gameServer.broadcastToMap(player.map, {
@@ -161,6 +162,15 @@ wss.on('connection', (ws) => {
         const pId = gameServer.wsToPlayer.get(ws);
         if (pId) await saveInventory(supabase, pId, gameServer.getInventory(pId));
       }
+      if (result?.goldChanged) {
+        const pId = gameServer.wsToPlayer.get(ws);
+        if (pId) {
+          const player = gameServer.players.get(pId);
+          if (player) {
+            await supabase.from('characters').update({ gold: player.gold }).eq('id', player.id);
+          }
+        }
+      }
       return;
     }
 
@@ -190,6 +200,36 @@ wss.on('connection', (ws) => {
       }
       return;
     }
+
+    if (msg.type === 'buy_item') {
+      const result = gameServer.handleBuyItem(ws, msg.itemType, msg.quantity ?? 1);
+      if (result?.inventoryChanged || result?.statsChanged) {
+        const pId = gameServer.wsToPlayer.get(ws);
+        if (pId) {
+          await saveInventory(supabase, pId, gameServer.getInventory(pId));
+          const player = gameServer.players.get(pId);
+          if (player) {
+            await supabase.from('characters').update({ gold: player.gold }).eq('id', player.id);
+          }
+        }
+      }
+      return;
+    }
+
+    if (msg.type === 'sell_item') {
+      const result = gameServer.handleSellItem(ws, msg.slot, msg.quantity ?? 1);
+      if (result?.inventoryChanged || result?.statsChanged) {
+        const pId = gameServer.wsToPlayer.get(ws);
+        if (pId) {
+          await saveInventory(supabase, pId, gameServer.getInventory(pId));
+          const player = gameServer.players.get(pId);
+          if (player) {
+            await supabase.from('characters').update({ gold: player.gold }).eq('id', player.id);
+          }
+        }
+      }
+      return;
+    }
   });
 
   ws.on('close', async () => {
@@ -208,6 +248,7 @@ wss.on('connection', (ws) => {
           y: Math.round(player.py),
           food: player.food,
           drink: player.drink,
+          gold: player.gold ?? 0,
         }).eq('id', player.id);
 
         await saveInventory(supabase, player.id, player.inventory || []);

@@ -12,6 +12,7 @@ const SYNC_MIN_DIST = 3;
 const ITEM_COLORS = {
   apple: 0xff4444,
   water: 0x4444ff,
+  gold_pile: 0xffcc00,
 };
 
 export default class GameScene extends Phaser.Scene {
@@ -33,6 +34,10 @@ export default class GameScene extends Phaser.Scene {
     this._movePending = null;
     this._transitioning = false;
     this.groundItemSprites = new Map();
+    this.npcSprites = new Map();
+    this._lastNpcClick = { id: null, time: 0 };
+    this._npcClickTimer = null;
+    this._onOpenShop = null;
   }
 
   setMyId(id) {
@@ -41,6 +46,10 @@ export default class GameScene extends Phaser.Scene {
 
   setOnErrorCallback(fn) {
     this.onError = fn;
+  }
+
+  setOnOpenShop(fn) {
+    this._onOpenShop = fn;
   }
 
   preload() {
@@ -90,9 +99,31 @@ export default class GameScene extends Phaser.Scene {
     this._rulerGfx = this.add.graphics().setDepth(199);
 
     this.input.on('pointerdown', (pointer) => {
-      if (!gameSocket.selectedSpell) return;
       const clickPx = pointer.worldX;
       const clickPy = pointer.worldY;
+
+      for (const [id, npc] of this.npcSprites) {
+        const dx = Math.abs(npc.data.px - clickPx);
+        const dy = Math.abs(npc.data.py - clickPy);
+        if (dx < 24 && dy < 48) {
+          if (this._npcClickTimer) clearTimeout(this._npcClickTimer);
+          const now = Date.now();
+          if (this._lastNpcClick.id === id && now - this._lastNpcClick.time < 400) {
+            this._lastNpcClick = { id: null, time: 0 };
+            if (this._onOpenShop) this._onOpenShop();
+          } else {
+            this._lastNpcClick = { id, time: now };
+            this._npcClickTimer = setTimeout(() => {
+              if (this.npcSprites.has(id)) {
+                this.showNpcBubble(id, 'Hola hazme doble click para comprar objetos', 10000);
+              }
+            }, 400);
+          }
+          return;
+        }
+      }
+
+      if (!gameSocket.selectedSpell) return;
 
       let targetId = null;
       for (const [id, sprite] of this.playerSprites) {
@@ -120,6 +151,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.boundaryGroup) this.boundaryGroup.destroy(true, true);
     if (this.mapGraphics) this.mapGraphics.destroy();
     this.clearGroundItems();
+    this.clearNpcs();
 
     this.solidGroup = this.physics.add.staticGroup();
     this.boundaryGroup = this.physics.add.staticGroup();
@@ -225,20 +257,76 @@ export default class GameScene extends Phaser.Scene {
     gfx.lineStyle(1, 0xffffff, 0.3);
     gfx.strokeRect(item.px - size / 2, item.py - size / 2, size, size);
     gfx.setDepth(2);
-    this.groundItemSprites.set(item.id, { gfx, data: item });
+
+    let textObj = null;
+    if (item.amount && item.amount > 1) {
+      textObj = this.add.text(item.px, item.py - size / 2 - 8, `${item.amount}g`, {
+        fontSize: '10px', fontFamily: 'monospace', color: '#ffcc00',
+        stroke: '#000000', strokeThickness: 2,
+      }).setOrigin(0.5, 1).setDepth(3);
+    }
+
+    this.groundItemSprites.set(item.id, { gfx, text: textObj, data: item });
   }
 
   removeGroundItem(id) {
     const entry = this.groundItemSprites.get(id);
     if (entry) {
       entry.gfx.destroy();
+      if (entry.text) entry.text.destroy();
       this.groundItemSprites.delete(id);
     }
   }
 
   clearGroundItems() {
-    for (const [, entry] of this.groundItemSprites) entry.gfx.destroy();
+    for (const [, entry] of this.groundItemSprites) {
+      entry.gfx.destroy();
+      if (entry.text) entry.text.destroy();
+    }
     this.groundItemSprites.clear();
+  }
+
+  renderNpc(npc) {
+    const gfx = this.add.graphics();
+    gfx.fillStyle(npc.color || 0x44cc44, 1);
+    gfx.fillRect(npc.px - 16, npc.py - 32, 32, 64);
+    gfx.lineStyle(1, 0x000000, 0.5);
+    gfx.strokeRect(npc.px - 16, npc.py - 32, 32, 64);
+    gfx.setDepth(5);
+
+    const nameText = this.add.text(npc.px, npc.py - 40, npc.name || 'NPC', {
+      fontSize: '10px', fontFamily: 'monospace', color: '#44ff44',
+      stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5, 1).setDepth(20);
+
+    const bubble = this.add.text(npc.px, npc.py - 50, '', {
+      fontSize: '11px', fontFamily: 'monospace', color: '#ffffff',
+      stroke: '#000000', strokeThickness: 3, align: 'center',
+      wordWrap: { width: 200 },
+    }).setOrigin(0.5, 1).setAlpha(0).setDepth(20);
+
+    this.npcSprites.set(npc.id, { gfx, nameText, bubble, data: npc });
+  }
+
+  clearNpcs() {
+    for (const [, entry] of this.npcSprites) {
+      entry.gfx.destroy();
+      entry.nameText.destroy();
+      entry.bubble.destroy();
+    }
+    this.npcSprites.clear();
+  }
+
+  showNpcBubble(id, text, duration) {
+    const npc = this.npcSprites.get(id);
+    if (!npc) return;
+    npc.bubble.setText(text).setAlpha(1);
+    this.tweens.add({
+      targets: npc.bubble,
+      alpha: 0,
+      delay: duration,
+      duration: 500,
+    });
   }
 
   handleServerMessage(msg) {
@@ -304,6 +392,11 @@ export default class GameScene extends Phaser.Scene {
         if (msg.groundItems) {
           this.clearGroundItems();
           for (const item of msg.groundItems) this.renderGroundItem(item);
+        }
+
+        if (msg.npcs) {
+          this.clearNpcs();
+          for (const npc of msg.npcs) this.renderNpc(npc);
         }
         break;
       }

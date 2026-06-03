@@ -3,6 +3,7 @@ import Phaser from 'phaser';
 import GameScene from '../game/GameScene.js';
 import { gameSocket } from '../network/websocket.js';
 import GameUI from './GameUI.jsx';
+import ShopPanel from './ShopPanel.jsx';
 
 export default function GameScreen({ character, session, onLeave }) {
   const containerRef = useRef(null);
@@ -13,6 +14,7 @@ export default function GameScreen({ character, session, onLeave }) {
   const [wsError, setWsError] = useState('');
   const [inventory, setInventory] = useState([]);
   const [selectedSlot, setSelectedSlot] = useState(null);
+  const [shopOpen, setShopOpen] = useState(false);
 
   useEffect(() => {
     gameSocket.connect(session.access_token);
@@ -48,6 +50,7 @@ export default function GameScreen({ character, session, onLeave }) {
           setWsError(err);
           setTimeout(() => setWsError(''), 3000);
         });
+        scene.setOnOpenShop(() => setShopOpen(true));
         clearInterval(checkScene);
       }
       if (checkSceneCount > 50) clearInterval(checkScene);
@@ -113,6 +116,14 @@ export default function GameScreen({ character, session, onLeave }) {
     gameSocket.selectedSlot = null;
   };
 
+  const handleBuy = (itemType, quantity = 1) => {
+    gameSocket.send('buy_item', { itemType, quantity });
+  };
+
+  const handleSell = (slot, quantity = 1) => {
+    gameSocket.send('sell_item', { slot, quantity });
+  };
+
   return (
     <div className="game-container">
       <div ref={containerRef} className="game-canvas" />
@@ -130,6 +141,15 @@ export default function GameScreen({ character, session, onLeave }) {
         onSelectSlot={handleSelectSlot}
         onUseSlot={handleUseSlot}
       />
+      {shopOpen && (
+        <ShopPanel
+          inventory={inventory}
+          gold={stats?.gold ?? 0}
+          onBuy={handleBuy}
+          onSell={handleSell}
+          onClose={() => setShopOpen(false)}
+        />
+      )}
     </div>
   );
 }

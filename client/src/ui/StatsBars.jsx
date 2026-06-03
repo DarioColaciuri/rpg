@@ -17,6 +17,10 @@ export default function StatsBars({ stats }) {
         <span className="stats-name">{stats.name || 'Unknown'}</span>
         <span className="stats-level">Lv.{stats.level ?? 1}</span>
         <span className="stats-xp">XP: {stats.xp ?? 0}</span>
+        <span className="stats-gold">
+          <span className="stats-gold-icon" />
+          {stats.gold ?? 0}
+        </span>
       </div>
       {barConfig.map(({ key, label, color, bg }) => {
         const current = stats[key] ?? 0;
