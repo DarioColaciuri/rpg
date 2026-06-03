@@ -20,6 +20,17 @@ const SPELL_MANA_COST = 2;
 const MEDITATE_MANA_REGEN = 5;
 const MEDITATE_INTERVAL = 1000;
 
+const ENEMY_COUNT = 3;
+const ENEMY_SPEED = 60;
+const ENEMY_JUMP = -210;
+const ENEMY_HP = 10;
+const ENEMY_DAMAGE = 1;
+const ENEMY_ATTACK_COOLDOWN = 2000;
+const ENEMY_AGGRO_RANGE = 100;
+const ENEMY_ATTACK_RANGE = 48;
+const ENEMY_TICK = 50;
+const ENEMY_BROADCAST = 50;
+
 const ITEM_DEFS = {
   apple: { name: 'Apple', stat: 'food', amount: 10 },
   water: { name: 'Water', stat: 'drink', amount: 10 },
@@ -76,12 +87,17 @@ export class GameServer {
     this.players = new Map();
     this.wsToPlayer = new Map();
     this.groundItems = new Map();
+    this.enemies = new Map();
     this._nextGroundItemId = 1;
+    this._nextEnemyId = 1;
+    this._lastEnemyBroadcast = 0;
     this.initGroundItems();
+    this.initEnemies();
     this.startStaminaRegen();
     this.startStatDrain();
     this.startHpRegen();
     this.startMeditationRegen();
+    this.startEnemyAI();
   }
 
   startStaminaRegen() {
@@ -163,6 +179,183 @@ export class GameServer {
         }
       }
     }, MEDITATE_INTERVAL);
+  }
+
+  initEnemies() {
+    for (let i = 0; i < ENEMY_COUNT; i++) {
+      this.spawnEnemy('forest');
+    }
+  }
+
+  spawnEnemy(mapName) {
+    const map = MAPS[mapName];
+    if (!map) return;
+    let px, py;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const tx = 2 + Math.floor(Math.random() * (map.width - 4));
+      let groundRow = map.height;
+      for (let r = 1; r < map.height; r++) {
+        if (map.tiles[r][tx] === 1 && map.tiles[r - 1][tx] !== 1) { groundRow = r; break; }
+      }
+      if (groundRow >= map.height) continue;
+      px = tx * TILE_SIZE + TILE_SIZE / 2;
+      py = (groundRow - 1) * TILE_SIZE + TILE_SIZE / 2;
+      if (py > 100 && isPixelWalkable(mapName, px, py, 32, 32) && !this.isPixelOccupied(mapName, px, py, 32, 32)) {
+        break;
+      }
+      px = null; py = null;
+    }
+    if (!px) { px = 200; py = 750; }
+
+    const id = `enemy_${this._nextEnemyId++}`;
+    this.enemies.set(id, {
+      id, map: mapName, px, py,
+      hp: ENEMY_HP, maxHp: ENEMY_HP,
+      direction: Math.random() > 0.5 ? 'right' : 'left',
+      velX: 0, velY: 0, grounded: true,
+      attackCooldown: 0,
+      walkTimer: Math.random() * 2000,
+    });
+  }
+
+  getEnemiesOnMap(mapName) {
+    const result = [];
+    for (const [, e] of this.enemies) {
+      if (e.map === mapName) result.push({ id: e.id, px: e.px, py: e.py, hp: e.hp, maxHp: e.maxHp, direction: e.direction });
+    }
+    return result;
+  }
+
+  startEnemyAI() {
+    setInterval(() => {
+      const now = Date.now();
+      for (const [, enemy] of this.enemies) {
+        this.updateEnemy(enemy, ENEMY_TICK);
+      }
+      if (now - this._lastEnemyBroadcast > ENEMY_BROADCAST) {
+        this._lastEnemyBroadcast = now;
+        this.broadcastEnemyState('forest');
+      }
+    }, ENEMY_TICK);
+  }
+
+  updateEnemy(enemy, deltaMs) {
+    const delta = deltaMs / 1000;
+    enemy.attackCooldown = Math.max(0, enemy.attackCooldown - deltaMs);
+
+    let nearestPlayer = null;
+    let nearestDist = Infinity;
+    for (const [, p] of this.players) {
+      if (p.map !== enemy.map || p.dead) continue;
+      const dx = Math.abs(p.px - enemy.px);
+      const dy = Math.abs(p.py - enemy.py);
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < ENEMY_AGGRO_RANGE && dist < nearestDist) {
+        nearestDist = dist;
+        nearestPlayer = p;
+      }
+    }
+
+    if (nearestPlayer) {
+      const dx = nearestPlayer.px - enemy.px;
+      enemy.direction = dx > 0 ? 'right' : 'left';
+
+      if (nearestDist < ENEMY_ATTACK_RANGE && enemy.attackCooldown <= 0) {
+        nearestPlayer.hp = Math.max(0, nearestPlayer.hp - ENEMY_DAMAGE);
+        enemy.attackCooldown = ENEMY_ATTACK_COOLDOWN;
+        const targetWs = this.getWsByPlayerId(nearestPlayer.id);
+        if (targetWs) this.sendTo(targetWs, { type: 'stats_update', ...this.getStats(nearestPlayer) });
+        this.broadcastToMap(enemy.map, {
+          type: 'enemy_attack',
+          enemyId: enemy.id, targetId: nearestPlayer.id,
+          damage: ENEMY_DAMAGE, targetHp: nearestPlayer.hp,
+        });
+        if (nearestPlayer.hp <= 0) {
+          nearestPlayer.dead = true;
+          this.broadcastToMap(nearestPlayer.map, {
+            type: 'player_died', id: nearestPlayer.id, px: nearestPlayer.px, py: nearestPlayer.py,
+          });
+        }
+      } else {
+        const speed = enemy.direction === 'right' ? ENEMY_SPEED : -ENEMY_SPEED;
+        enemy.velX = speed;
+      }
+    } else {
+      enemy.walkTimer -= deltaMs;
+      if (enemy.walkTimer <= 0) {
+        enemy.walkTimer = 1500 + Math.random() * 3000;
+        enemy.direction = Math.random() > 0.5 ? 'right' : 'left';
+        if (enemy.grounded && Math.random() > 0.5) enemy.velY = ENEMY_JUMP;
+      }
+      const speed = enemy.direction === 'right' ? ENEMY_SPEED : -ENEMY_SPEED;
+      enemy.velX = speed;
+    }
+
+    enemy.velY += 600 * delta;
+    const newX = enemy.px + (enemy.velX || 0) * delta;
+    const newY = enemy.py + enemy.velY * delta;
+
+    const mapData = MAPS[enemy.map];
+    const mapW = mapData.width * TILE_SIZE;
+    const clampX = Math.max(16, Math.min(mapW - 16, newX));
+    const clampY = Math.max(16, Math.min(mapData.height * TILE_SIZE - 16, newY));
+
+    if (newX <= 16 || newX >= mapW - 16) {
+      enemy.direction = enemy.direction === 'right' ? 'left' : 'right';
+      enemy.velX = 0;
+    }
+
+    let blockedX = false;
+    if (!isPixelWalkable(enemy.map, clampX, enemy.py, 32, 32)) {
+      enemy.direction = enemy.direction === 'right' ? 'left' : 'right';
+      enemy.velX = 0;
+      blockedX = true;
+    }
+    for (const [, p] of this.players) {
+      if (p.map !== enemy.map || p.dead) continue;
+      if (Math.abs(p.px - clampX) < 34 && Math.abs(p.py - enemy.py) < 50) {
+        enemy.direction = enemy.direction === 'right' ? 'left' : 'right';
+        enemy.velX = 0;
+        blockedX = true;
+        break;
+      }
+    }
+    if (!blockedX) enemy.px = clampX;
+
+    if (isPixelWalkable(enemy.map, enemy.px, clampY, 32, 32)) {
+      enemy.py = clampY;
+      enemy.grounded = false;
+    } else {
+      if (enemy.velY > 0) {
+        enemy.grounded = true;
+        enemy.velY = 0;
+        enemy.py = Math.floor(enemy.py / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
+      } else {
+        enemy.velY = 0;
+      }
+    }
+
+    if (!isPixelWalkable(enemy.map, enemy.px, enemy.py, 32, 32)) {
+      enemy.py = enemy.py - enemy.velY * delta;
+      enemy.velY = 0;
+    }
+  }
+
+  broadcastEnemyState(mapName) {
+    const enemies = this.getEnemiesOnMap(mapName);
+    if (enemies.length > 0) {
+      this.broadcastToMap(mapName, { type: 'enemies_state', enemies });
+    }
+  }
+
+  enemyDied(enemy) {
+    this.broadcastToMap(enemy.map, { type: 'enemy_died', id: enemy.id });
+    const gid = `${enemy.map}_${this._nextGroundItemId++}`;
+    this.groundItems.set(gid, { id: gid, map: enemy.map, px: enemy.px, py: enemy.py, itemType: 'gold_pile', amount: 1 });
+    this.broadcastToMap(enemy.map, { type: 'ground_item_added', id: gid, map: enemy.map, px: enemy.px, py: enemy.py, itemType: 'gold_pile', amount: 1 });
+    this.enemies.delete(enemy.id);
+    this.spawnEnemy(enemy.map);
+    this.broadcastEnemyState(enemy.map);
   }
 
   playerData(player) {
@@ -509,6 +702,7 @@ export class GameServer {
       stats: this.getStats(player),
       groundItems: this.getGroundItemsOnMap(player.map),
       npcs: this.getNpcsOnMap(player.map),
+      enemies: this.getEnemiesOnMap(player.map),
     });
     this.broadcastToMap(player.map, { type: 'player_joined', player: this.playerData(player) }, ws);
   }
@@ -570,6 +764,7 @@ export class GameServer {
           stats: this.getStats(player),
           groundItems: this.getGroundItemsOnMap(player.map),
           npcs: this.getNpcsOnMap(player.map),
+      enemies: this.getEnemiesOnMap(player.map),
         });
         this.broadcastToMap(player.map, { type: 'player_joined', player: this.playerData(player) }, ws);
         return;
@@ -668,6 +863,24 @@ export class GameServer {
     }
 
     if (!target) {
+      for (const [, e] of this.enemies) {
+        if (e.map !== attacker.map) continue;
+        const eTx = Math.floor(e.px / TILE_SIZE);
+        const eTy = Math.floor(e.py / TILE_SIZE);
+        const dx = Math.abs(eTx - aTx);
+        const dy = Math.abs(eTy - aTy);
+        if (dx <= 1 && dy <= 1) {
+          attacker.stamina -= 1;
+          e.hp = Math.max(0, e.hp - damage);
+          this.sendTo(ws, { type: 'stats_update', ...this.getStats(attacker) });
+          if (e.hp <= 0) {
+            this.enemyDied(e);
+          } else {
+            this.broadcastToMap(attacker.map, { type: 'enemy_hit', enemyId: e.id, hp: e.hp });
+          }
+          return;
+        }
+      }
       this.sendTo(ws, { type: 'attack_miss' });
       return;
     }
@@ -709,6 +922,10 @@ export class GameServer {
       if (p.map !== mapName) continue;
       if (Math.abs(p.px - px) < w && Math.abs(p.py - py) < h) return true;
     }
+    for (const [, e] of this.enemies) {
+      if (e.map !== mapName) continue;
+      if (Math.abs(e.px - px) < w + 16 && Math.abs(e.py - py) < h + 16) return true;
+    }
     return false;
   }
 
@@ -747,20 +964,27 @@ export class GameServer {
     }
 
     const target = this.players.get(targetPlayerId);
-    if (!target || target.id === caster.id) {
+    const enemyTarget = this.enemies.get(targetPlayerId);
+    if ((!target || target.id === caster.id) && !enemyTarget) {
       this.sendTo(ws, { type: 'error', msg: 'Objetivo invalido' });
       return;
     }
 
-    if (target.map !== caster.map) {
+    if (target && target.map !== caster.map) {
+      this.sendTo(ws, { type: 'error', msg: 'El objetivo no esta en este mapa' });
+      return;
+    }
+    if (enemyTarget && enemyTarget.map !== caster.map) {
       this.sendTo(ws, { type: 'error', msg: 'El objetivo no esta en este mapa' });
       return;
     }
 
+    const targetPx = target ? target.px : enemyTarget.px;
+    const targetPy = target ? target.py : enemyTarget.py;
     const cTx = Math.floor(caster.px / TILE_SIZE);
     const cTy = Math.floor(caster.py / TILE_SIZE);
-    const tTx = Math.floor(target.px / TILE_SIZE);
-    const tTy = Math.floor(target.py / TILE_SIZE);
+    const tTx = Math.floor(targetPx / TILE_SIZE);
+    const tTy = Math.floor(targetPy / TILE_SIZE);
     const dist = Math.abs(tTx - cTx) + Math.abs(tTy - cTy);
     if (dist > 12) {
       this.sendTo(ws, { type: 'error', msg: 'El objetivo esta muy lejos' });
@@ -768,33 +992,31 @@ export class GameServer {
     }
 
     caster.mana = Math.max(0, (caster.mana || 0) - SPELL_MANA_COST);
-    target.hp = Math.max(0, target.hp - 3);
 
-    const msg = {
-      type: 'spell_cast',
-      casterId: caster.id,
-      casterName: caster.name,
-      targetId: target.id,
-      targetName: target.name,
-      damage: 3,
-      targetHp: target.hp,
-    };
-    this.broadcastToMap(caster.map, msg, null);
-    this.sendTo(ws, { type: 'stats_update', ...this.getStats(caster) });
-
-    const targetWs = this.getWsByPlayerId(target.id);
-    if (targetWs) {
-      this.sendTo(targetWs, { type: 'stats_update', ...this.getStats(target) });
-    }
-
-    if (target.hp <= 0) {
-      target.dead = true;
-      this.broadcastToMap(target.map, {
-        type: 'player_died',
-        id: target.id,
-        px: target.px,
-        py: target.py,
-      });
+    if (target) {
+      target.hp = Math.max(0, target.hp - 3);
+      const msg = {
+        type: 'spell_cast',
+        casterId: caster.id, casterName: caster.name,
+        targetId: target.id, targetName: target.name,
+        damage: 3, targetHp: target.hp,
+      };
+      this.broadcastToMap(caster.map, msg, null);
+      this.sendTo(ws, { type: 'stats_update', ...this.getStats(caster) });
+      const targetWs = this.getWsByPlayerId(target.id);
+      if (targetWs) this.sendTo(targetWs, { type: 'stats_update', ...this.getStats(target) });
+      if (target.hp <= 0) {
+        target.dead = true;
+        this.broadcastToMap(target.map, { type: 'player_died', id: target.id, px: target.px, py: target.py });
+      }
+    } else if (enemyTarget) {
+      enemyTarget.hp = Math.max(0, enemyTarget.hp - 3);
+      this.sendTo(ws, { type: 'stats_update', ...this.getStats(caster) });
+      if (enemyTarget.hp <= 0) {
+        this.enemyDied(enemyTarget);
+      } else {
+        this.broadcastToMap(caster.map, { type: 'enemy_hit', enemyId: enemyTarget.id, hp: enemyTarget.hp });
+      }
     }
   }
 

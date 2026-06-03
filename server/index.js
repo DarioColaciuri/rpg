@@ -27,21 +27,26 @@ function trackSave(promise) {
   return promise;
 }
 
-async function saveInventory(supabase, playerId, inventory) {
+function buildCharUpdate(player) {
+  return {
+    map: player.map,
+    x: Math.round(player.px),
+    y: Math.round(player.py),
+    hp: player.hp,
+    food: player.food,
+    drink: player.drink,
+    gold: player.gold ?? 0,
+    inventory: player.inventory || [],
+  };
+}
+
+async function saveChar(supabase, player) {
   try {
-    await trackSave(supabase.from('inventory_items').delete().eq('character_id', playerId));
-    if (inventory.length > 0) {
-      await trackSave(supabase.from('inventory_items').insert(
-        inventory.map(inv => ({
-          character_id: playerId,
-          slot: inv.slot,
-          item_type: inv.itemType,
-          quantity: inv.quantity,
-        }))
-      ));
-    }
+    await trackSave(supabase.from('characters')
+      .update(buildCharUpdate(player))
+      .eq('id', player.id));
   } catch (err) {
-    console.error('Failed to save inventory:', err.message);
+    console.error('Failed to save character:', err.message);
   }
 }
 
@@ -106,17 +111,8 @@ wss.on('connection', (ws) => {
 
       const hasSavedPos = character.x != null && character.y != null && character.map;
 
-      const { data: invRows, error: invError } = await supabase
-        .from('inventory_items')
-        .select('*')
-        .eq('character_id', msg.characterId)
-        .order('slot');
-
-      const inventory = invRows ? invRows.map(row => ({
-        slot: row.slot,
-        itemType: row.item_type,
-        quantity: row.quantity,
-      })) : [];
+      const inventory = (character.inventory && Array.isArray(character.inventory))
+        ? character.inventory : [];
 
       const player = gameServer.addPlayer(ws, character,
         hasSavedPos ? character.x : null,
@@ -134,6 +130,7 @@ wss.on('connection', (ws) => {
         stats: gameServer.getStats(player),
         groundItems: gameServer.getGroundItemsOnMap(player.map),
         npcs: gameServer.getNpcsOnMap(player.map),
+        enemies: gameServer.getEnemiesOnMap(player.map),
       });
 
       gameServer.broadcastToMap(player.map, {
@@ -175,14 +172,7 @@ wss.on('connection', (ws) => {
       const pId = gameServer.wsToPlayer.get(ws);
       if (pId) {
         const player = gameServer.players.get(pId);
-        if (player) {
-          trackSave(supabase.from('characters').update({
-            map: player.map,
-            x: Math.round(player.px),
-            y: Math.round(player.py),
-            hp: player.hp,
-          }).eq('id', player.id));
-        }
+        if (player) await saveChar(supabase, player);
       }
       return;
     }
@@ -199,17 +189,11 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'pickup_item') {
       const result = gameServer.handlePickupItem(ws, msg.groundItemId);
-      if (result?.inventoryChanged) {
-        const pId = gameServer.wsToPlayer.get(ws);
-        if (pId) await saveInventory(supabase, pId, gameServer.getInventory(pId));
-      }
-      if (result?.goldChanged) {
+      if (result?.inventoryChanged || result?.goldChanged) {
         const pId = gameServer.wsToPlayer.get(ws);
         if (pId) {
           const player = gameServer.players.get(pId);
-          if (player) {
-            await trackSave(supabase.from('characters').update({ gold: player.gold }).eq('id', player.id));
-          }
+          if (player) await saveChar(supabase, player);
         }
       }
       return;
@@ -219,7 +203,10 @@ wss.on('connection', (ws) => {
       const result = gameServer.handleDropItem(ws, msg.slot, msg.quantity ?? 1);
       if (result?.inventoryChanged) {
         const pId = gameServer.wsToPlayer.get(ws);
-        if (pId) await saveInventory(supabase, pId, gameServer.getInventory(pId));
+        if (pId) {
+          const player = gameServer.players.get(pId);
+          if (player) await saveChar(supabase, player);
+        }
       }
       return;
     }
@@ -229,14 +216,8 @@ wss.on('connection', (ws) => {
       if (result?.inventoryChanged || result?.statsChanged) {
         const pId = gameServer.wsToPlayer.get(ws);
         if (pId) {
-          await saveInventory(supabase, pId, gameServer.getInventory(pId));
           const player = gameServer.players.get(pId);
-          if (player) {
-            await trackSave(supabase.from('characters').update({
-              food: player.food,
-              drink: player.drink,
-            }).eq('id', player.id));
-          }
+          if (player) await saveChar(supabase, player);
         }
       }
       return;
@@ -247,11 +228,8 @@ wss.on('connection', (ws) => {
       if (result?.inventoryChanged || result?.statsChanged) {
         const pId = gameServer.wsToPlayer.get(ws);
         if (pId) {
-          await saveInventory(supabase, pId, gameServer.getInventory(pId));
           const player = gameServer.players.get(pId);
-          if (player) {
-            await trackSave(supabase.from('characters').update({ gold: player.gold }).eq('id', player.id));
-          }
+          if (player) await saveChar(supabase, player);
         }
       }
       return;
@@ -262,11 +240,8 @@ wss.on('connection', (ws) => {
       if (result?.inventoryChanged || result?.statsChanged) {
         const pId = gameServer.wsToPlayer.get(ws);
         if (pId) {
-          await saveInventory(supabase, pId, gameServer.getInventory(pId));
           const player = gameServer.players.get(pId);
-          if (player) {
-            await trackSave(supabase.from('characters').update({ gold: player.gold }).eq('id', player.id));
-          }
+          if (player) await saveChar(supabase, player);
         }
       }
       return;
@@ -283,14 +258,7 @@ wss.on('connection', (ws) => {
       console.log(`${player.name} left the world`);
 
       try {
-        const updateData = {
-          map: player.map,
-          x: Math.round(player.px),
-          y: Math.round(player.py),
-          food: player.food,
-          drink: player.drink,
-          gold: player.gold ?? 0,
-        };
+        const updateData = buildCharUpdate(player);
         if (player.dead) {
           updateData.map = 'city';
           updateData.hp = player.maxHp;
@@ -299,8 +267,6 @@ wss.on('connection', (ws) => {
           updateData.y = Math.round(spawn.py);
         }
         await trackSave(supabase.from('characters').update(updateData).eq('id', player.id));
-
-        await saveInventory(supabase, player.id, player.inventory || []);
       } catch (err) {
         console.error('Failed to save data:', err.message);
       }

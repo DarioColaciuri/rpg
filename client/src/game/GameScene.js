@@ -47,6 +47,7 @@ export default class GameScene extends Phaser.Scene {
     this._onDropRequest = null;
     this._lastCursorSpell = null;
     this._isMeditating = false;
+    this.enemySprites = new Map();
   }
 
   setMyId(id) {
@@ -104,6 +105,7 @@ export default class GameScene extends Phaser.Scene {
     this.input.keyboard.clearCaptures();
 
     this.remoteGroup = this.add.group();
+    this.enemyBodyGroup = this.physics.add.staticGroup();
 
     this._showRuler = false;
     this._rulerKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
@@ -148,9 +150,13 @@ export default class GameScene extends Phaser.Scene {
         if (id === this.myId) continue;
         const dx = Math.abs(sprite.x - clickPx);
         const dy = Math.abs(sprite.y - clickPy);
-        if (dx < 24 && dy < 40) {
-          targetId = id;
-          break;
+        if (dx < 24 && dy < 40) { targetId = id; break; }
+      }
+      if (!targetId) {
+        for (const [id, entry] of this.enemySprites) {
+          const dx = Math.abs(entry.data.px - clickPx);
+          const dy = Math.abs(entry.data.py - clickPy);
+          if (dx < 22 && dy < 22) { targetId = id; break; }
         }
       }
 
@@ -170,6 +176,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.mapGraphics) this.mapGraphics.destroy();
     this.clearGroundItems();
     this.clearNpcs();
+    this.clearEnemies();
 
     this.solidGroup = this.physics.add.staticGroup();
     this.boundaryGroup = this.physics.add.staticGroup();
@@ -246,6 +253,7 @@ export default class GameScene extends Phaser.Scene {
   _addPlayerColliders(player) {
     if (!player.hasPhysics) return;
     this._solidCollider = this.physics.add.collider(player, this.solidGroup);
+    this.physics.add.collider(player, this.enemyBodyGroup);
     const isSafe = MAPS[this.currentMap]?.safe ?? true;
     if (this._remoteCollider) {
       this.physics.world.removeCollider(this._remoteCollider);
@@ -335,6 +343,44 @@ export default class GameScene extends Phaser.Scene {
     this.npcSprites.clear();
   }
 
+  renderEnemy(enemy) {
+    const gfx = this.add.graphics();
+    gfx.fillStyle(0x8844cc, 1);
+    gfx.fillRect(-16, -16, 32, 32);
+    gfx.lineStyle(1, 0xaa66ff, 0.6);
+    gfx.strokeRect(-16, -16, 32, 32);
+    gfx.setPosition(enemy.px, enemy.py);
+    gfx.setDepth(5);
+
+    const hpBg = this.add.graphics().setDepth(20);
+    hpBg.fillStyle(0x333333, 1);
+    hpBg.fillRect(-16, -20, 32, 3);
+    hpBg.setPosition(enemy.px, enemy.py);
+
+    const hpBar = this.add.graphics().setDepth(20);
+    const ratio = (enemy.hp ?? 10) / (enemy.maxHp ?? 10);
+    const hpColor = ratio > 0.5 ? 0x44cc44 : ratio > 0.25 ? 0xcccc44 : 0xcc4444;
+    hpBar.fillStyle(hpColor, 1);
+    hpBar.fillRect(-16, -20, 32 * Math.max(0, ratio), 3);
+    hpBar.setPosition(enemy.px, enemy.py);
+
+    const body = this.add.rectangle(enemy.px, enemy.py, 32, 32);
+    this.enemyBodyGroup.add(body);
+    body.visible = false;
+
+    this.enemySprites.set(enemy.id, { gfx, hpBg, hpBar, body, data: enemy, _targetX: enemy.px, _targetY: enemy.py });
+  }
+
+  clearEnemies() {
+    for (const [, entry] of this.enemySprites) {
+      entry.gfx.destroy();
+      entry.hpBg.destroy();
+      entry.hpBar.destroy();
+      entry.body.destroy();
+    }
+    this.enemySprites.clear();
+  }
+
   showNpcBubble(id, text, duration) {
     const npc = this.npcSprites.get(id);
     if (!npc) return;
@@ -415,6 +461,11 @@ export default class GameScene extends Phaser.Scene {
         if (msg.npcs) {
           this.clearNpcs();
           for (const npc of msg.npcs) this.renderNpc(npc);
+        }
+
+        if (msg.enemies) {
+          this.clearEnemies();
+          for (const e of msg.enemies) this.renderEnemy(e);
         }
         break;
       }
@@ -519,6 +570,54 @@ export default class GameScene extends Phaser.Scene {
           const s = this.playerSprites.get(msg.id);
           if (msg.meditating) s.showMeditate();
           else s.hideMeditate();
+        }
+        break;
+      }
+      case 'enemies_state': {
+        for (const e of msg.enemies) {
+          const entry = this.enemySprites.get(e.id);
+          if (entry) {
+            entry.data = e;
+            entry._targetX = e.px;
+            entry._targetY = e.py;
+            entry.hpBar.clear();
+            const ratio = (e.hp ?? 10) / (e.maxHp ?? 10);
+            const hpColor = ratio > 0.5 ? 0x44cc44 : ratio > 0.25 ? 0xcccc44 : 0xcc4444;
+            entry.hpBar.fillStyle(hpColor, 1);
+            entry.hpBar.fillRect(-16, -20, 32 * Math.max(0, ratio), 3);
+            entry.hpBar.setPosition(entry.gfx.x, entry.gfx.y);
+          } else {
+            this.renderEnemy(e);
+          }
+        }
+        break;
+      }
+      case 'enemy_died': {
+        const entry = this.enemySprites.get(msg.id);
+        if (entry) {
+          entry.gfx.destroy();
+          entry.hpBg.destroy();
+          entry.hpBar.destroy();
+          entry.body.destroy();
+          this.enemySprites.delete(msg.id);
+        }
+        break;
+      }
+      case 'enemy_hit': {
+        const entry = this.enemySprites.get(msg.enemyId);
+        if (entry && entry.data) {
+          entry.data.hp = msg.hp;
+        }
+        break;
+      }
+      case 'enemy_attack': {
+        if (this.playerSprites.has(msg.targetId)) {
+          const sprite = this.playerSprites.get(msg.targetId);
+          if (msg.targetHp !== undefined && sprite.playerData?.maxHp) {
+            sprite.playerData.hp = msg.targetHp;
+            sprite.updateHp(msg.targetHp, sprite.playerData.maxHp);
+          }
+          this.showFloatingText(sprite.x, sprite.y - 30, `-${msg.damage}`, '#cc44cc');
         }
         break;
       }
@@ -713,6 +812,19 @@ export default class GameScene extends Phaser.Scene {
     if (gameSocket.selectedSpell !== this._lastCursorSpell) {
       this.input.setDefaultCursor(gameSocket.selectedSpell ? 'crosshair' : 'default');
       this._lastCursorSpell = gameSocket.selectedSpell;
+    }
+
+    for (const [, entry] of this.enemySprites) {
+      if (entry._targetX != null && delta > 0) {
+        const f = 1 - Math.exp(-delta / 30);
+        entry.data.px += (entry._targetX - entry.data.px) * f;
+        entry.data.py += (entry._targetY - entry.data.py) * f;
+        entry.gfx.setPosition(entry.data.px, entry.data.py);
+        entry.hpBg.setPosition(entry.data.px, entry.data.py);
+        entry.hpBar.setPosition(entry.data.px, entry.data.py);
+        entry.body.setPosition(entry.data.px, entry.data.py);
+        entry.body.body.updateFromGameObject();
+      }
     }
 
     if (this._isDead) return;
