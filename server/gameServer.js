@@ -215,6 +215,7 @@ export class GameServer {
       velX: 0, velY: 0, grounded: true,
       attackCooldown: 0,
       walkTimer: Math.random() * 2000,
+      wallTimer: 0,
     });
   }
 
@@ -242,6 +243,7 @@ export class GameServer {
   updateEnemy(enemy, deltaMs) {
     const delta = deltaMs / 1000;
     enemy.attackCooldown = Math.max(0, enemy.attackCooldown - deltaMs);
+    enemy.wallTimer = Math.max(0, enemy.wallTimer - deltaMs);
 
     let nearestPlayer = null;
     let nearestDist = Infinity;
@@ -256,7 +258,7 @@ export class GameServer {
       }
     }
 
-    if (nearestPlayer) {
+    if (nearestPlayer && enemy.wallTimer <= 0) {
       const dx = nearestPlayer.px - enemy.px;
       enemy.direction = dx > 0 ? 'right' : 'left';
 
@@ -309,15 +311,27 @@ export class GameServer {
     if (!isPixelWalkable(enemy.map, clampX, enemy.py, 32, 32)) {
       enemy.direction = enemy.direction === 'right' ? 'left' : 'right';
       enemy.velX = 0;
+      enemy.wallTimer = 2000;
       blockedX = true;
     }
     for (const [, p] of this.players) {
       if (p.map !== enemy.map || p.dead) continue;
-      if (Math.abs(p.px - clampX) < 34 && Math.abs(p.py - enemy.py) < 50) {
+      if (Math.abs(p.px - clampX) < 32 && Math.abs(p.py - enemy.py) < 32) {
         enemy.direction = enemy.direction === 'right' ? 'left' : 'right';
         enemy.velX = 0;
         blockedX = true;
         break;
+      }
+    }
+    if (!blockedX) {
+      for (const [, other] of this.enemies) {
+        if (other.id === enemy.id || other.map !== enemy.map) continue;
+        if (Math.abs(other.px - clampX) < 28 && Math.abs(other.py - enemy.py) < 28) {
+          enemy.direction = enemy.direction === 'right' ? 'left' : 'right';
+          enemy.velX = 0;
+          blockedX = true;
+          break;
+        }
       }
     }
     if (!blockedX) enemy.px = clampX;
@@ -924,7 +938,7 @@ export class GameServer {
     }
     for (const [, e] of this.enemies) {
       if (e.map !== mapName) continue;
-      if (Math.abs(e.px - px) < w + 16 && Math.abs(e.py - py) < h + 16) return true;
+      if (Math.abs(e.px - px) < (w + 32) / 2 && Math.abs(e.py - py) < (h + 32) / 2) return true;
     }
     return false;
   }

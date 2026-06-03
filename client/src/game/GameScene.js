@@ -364,7 +364,7 @@ export default class GameScene extends Phaser.Scene {
     hpBar.fillRect(-16, -20, 32 * Math.max(0, ratio), 3);
     hpBar.setPosition(enemy.px, enemy.py);
 
-    const body = this.add.rectangle(enemy.px, enemy.py, 32, 32);
+    const body = this.add.rectangle(enemy.px, enemy.py, 48, 48);
     this.enemyBodyGroup.add(body);
     body.visible = false;
 
@@ -824,6 +824,25 @@ export default class GameScene extends Phaser.Scene {
         entry.hpBar.setPosition(entry.data.px, entry.data.py);
         entry.body.setPosition(entry.data.px, entry.data.py);
         entry.body.body.updateFromGameObject();
+      }
+    }
+    this.enemyBodyGroup.refresh();
+
+    if (!this._isDead && player) {
+      for (const [, entry] of this.enemySprites) {
+        const dx = player.x - entry.data.px;
+        const dy = player.y - entry.data.py;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 30 && dist > 0) {
+          const nx = dx / dist;
+          const ny = dy / dist;
+          player.x += nx * (30 - dist);
+          if (player.hasPhysics) {
+            player.body.setVelocityX(0);
+            player.body.setVelocityY(Math.min(player.body.velocity.y, 0));
+            player.body.updateFromGameObject();
+          }
+        }
       }
     }
 
