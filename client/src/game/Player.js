@@ -368,6 +368,10 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
     this.bubbleText.setPosition(px, py - h / 2 - 14);
 
+    if (this._deathGfx && this._deathGfx.visible) {
+      this._deathGfx.setPosition(this.x, this.y);
+    }
+
     if (this._hitboxGfx && this.hasPhysics && this.body) {
       this._hitboxGfx.clear();
       this._hitboxGfx.lineStyle(1, 0xff0000, 0.8);
@@ -387,6 +391,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
   destroy() {
     if (this._visual) this._visual.destroy();
     if (this._head) this._head.destroy();
+    if (this._deathGfx) this._deathGfx.destroy();
     if (this._hitboxGfx) this._hitboxGfx.destroy();
     if (this._hitboxLabel) this._hitboxLabel.destroy();
     if (this.hasPhysics && this.body) {

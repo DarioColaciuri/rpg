@@ -31,6 +31,7 @@ export default class GameScene extends Phaser.Scene {
     this._lastSyncTime = 0;
     this._lastSentX = 0;
     this._lastSentY = 0;
+    this._lastSentAnim = 'walk';
     this._movePending = null;
     this._transitioning = false;
     this.groundItemSprites = new Map();
@@ -40,6 +41,10 @@ export default class GameScene extends Phaser.Scene {
     this._onOpenShop = null;
     this._localStamina = 20;
     this._lastRunTick = 0;
+    this._audioCtx = null;
+    this._isDead = false;
+    this._onDied = null;
+    this._onDropRequest = null;
   }
 
   setMyId(id) {
@@ -52,6 +57,14 @@ export default class GameScene extends Phaser.Scene {
 
   setOnOpenShop(fn) {
     this._onOpenShop = fn;
+  }
+
+  setOnDied(fn) {
+    this._onDied = fn;
+  }
+
+  setOnDropRequest(fn) {
+    this._onDropRequest = fn;
   }
 
   preload() {
@@ -450,6 +463,36 @@ export default class GameScene extends Phaser.Scene {
           }
           this.showFloatingText(sprite.x, sprite.y - 30, `-${msg.damage}`, '#ff4444');
         }
+        this.playHitSound();
+        break;
+      }
+      case 'player_died': {
+        if (this.playerSprites.has(msg.id)) {
+          const sprite = this.playerSprites.get(msg.id);
+          if (sprite._visual) sprite._visual.setVisible(false);
+          if (sprite._head) sprite._head.setVisible(false);
+          if (sprite.nameText) sprite.nameText.setVisible(false);
+          if (sprite.hpBarBg) sprite.hpBarBg.setVisible(false);
+          if (sprite.hpBar) sprite.hpBar.setVisible(false);
+          if (!sprite._deathGfx) {
+            sprite._deathGfx = this.add.graphics();
+            sprite._deathGfx.fillStyle(0x000000, 1);
+            sprite._deathGfx.fillRect(-16, -32, 32, 64);
+            sprite._deathGfx.lineStyle(1, 0x333333, 0.5);
+            sprite._deathGfx.strokeRect(-16, -32, 32, 64);
+            sprite._deathGfx.setDepth(5);
+          }
+          sprite._deathGfx.setPosition(sprite.x, sprite.y);
+          sprite._deathGfx.setVisible(true);
+          if (msg.id === this.myId) {
+            this._isDead = true;
+            if (this._onDied) this._onDied();
+          }
+        }
+        break;
+      }
+      case 'error': {
+        if (this.onError) this.onError(msg.msg);
         break;
       }
       case 'spell_cast': {
@@ -496,8 +539,13 @@ export default class GameScene extends Phaser.Scene {
         this.removeGroundItem(msg.id);
         break;
       }
+      case 'attack_miss': {
+        this.playMissSound();
+        break;
+      }
       case 'map_change': {
         this._transitioning = false;
+        this._isDead = false;
         this.loadMap(msg.map);
         for (const [, sprite] of this.playerSprites) sprite.destroy();
         this.playerSprites.clear();
@@ -531,11 +579,75 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
+  playMissSound() {
+    try {
+      if (!this._audioCtx) this._audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = this._audioCtx;
+      if (ctx.state === 'suspended') ctx.resume();
+
+      const duration = 0.15;
+      const sampleRate = ctx.sampleRate;
+      const bufferSize = Math.floor(sampleRate * duration);
+      const buffer = ctx.createBuffer(1, bufferSize, sampleRate);
+      const data = buffer.getChannelData(0);
+
+      for (let i = 0; i < bufferSize; i++) {
+        const t = i / bufferSize;
+        data[i] = (Math.random() * 2 - 1) * (1 - t) * 0.3;
+      }
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 600 + Math.random() * 400;
+      filter.Q.value = 0.5;
+
+      source.connect(filter);
+      filter.connect(ctx.destination);
+      source.start();
+    } catch {}
+  }
+
+  playHitSound() {
+    try {
+      if (!this._audioCtx) this._audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = this._audioCtx;
+      if (ctx.state === 'suspended') ctx.resume();
+
+      const duration = 0.12;
+      const sampleRate = ctx.sampleRate;
+      const bufferSize = Math.floor(sampleRate * duration);
+      const buffer = ctx.createBuffer(1, bufferSize, sampleRate);
+      const data = buffer.getChannelData(0);
+
+      for (let i = 0; i < bufferSize; i++) {
+        const t = i / bufferSize;
+        data[i] = (Math.random() * 2 - 1) * (1 - t) * 0.5
+          + Math.sin(2 * Math.PI * 120 * t) * (1 - t) * 0.3;
+      }
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 400;
+
+      source.connect(filter);
+      filter.connect(ctx.destination);
+      source.start();
+    } catch {}
+  }
+
   update(time, delta) {
     if (!this.myId) return;
 
     const player = this.playerSprites.get(this.myId);
     if (!player || !player.hasPhysics) return;
+
+    if (this._isDead) return;
 
     if (Phaser.Input.Keyboard.JustDown(this._rulerKey)) {
       this._showRuler = !this._showRuler;
@@ -561,8 +673,8 @@ export default class GameScene extends Phaser.Scene {
     }
 
     if (Phaser.Input.Keyboard.JustDown(this.tKey)) {
-      if (gameSocket.selectedSlot != null) {
-        gameSocket.send('drop_item', { slot: gameSocket.selectedSlot });
+      if (gameSocket.selectedSlot != null && this._onDropRequest) {
+        this._onDropRequest();
       }
     }
 
@@ -642,15 +754,17 @@ export default class GameScene extends Phaser.Scene {
       const py = Math.round(player.y);
       const dx = Math.abs(px - this._lastSentX);
       const dy = Math.abs(py - this._lastSentY);
-      if (dx > SYNC_MIN_DIST || dy > SYNC_MIN_DIST) {
+      const animNow = player.animState;
+      if (dx > SYNC_MIN_DIST || dy > SYNC_MIN_DIST || animNow !== this._lastSentAnim) {
         gameSocket.send('move', {
           px, py,
           direction: player.direction,
-          animState: player.animState,
+          animState: animNow,
           isCrouching: player.isCrouching,
         });
         this._lastSentX = px;
         this._lastSentY = py;
+        this._lastSentAnim = animNow;
       }
       this._lastSyncTime = now;
     }

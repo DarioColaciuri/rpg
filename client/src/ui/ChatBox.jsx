@@ -51,8 +51,14 @@ export default function ChatBox({ messages, onSend }) {
       <div className="chat-log" ref={logRef}>
         {messages.map((m, i) => (
           <div key={i} className="chat-msg">
-            <span className="chat-name">{m.name}: </span>
-            <span className="chat-text">{m.text}</span>
+            {m.id === 'system' ? (
+              <span className="chat-system">{m.text}</span>
+            ) : (
+              <>
+                <span className="chat-name">{m.name}: </span>
+                <span className="chat-text">{m.text}</span>
+              </>
+            )}
           </div>
         ))}
       </div>

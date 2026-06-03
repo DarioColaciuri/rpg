@@ -5,6 +5,11 @@ import { gameSocket } from '../network/websocket.js';
 import GameUI from './GameUI.jsx';
 import ShopPanel from './ShopPanel.jsx';
 
+const ITEM_DEFS = {
+  apple: { name: 'Apple' },
+  water: { name: 'Water' },
+};
+
 export default function GameScreen({ character, session, onLeave }) {
   const containerRef = useRef(null);
   const gameRef = useRef(null);
@@ -15,6 +20,9 @@ export default function GameScreen({ character, session, onLeave }) {
   const [inventory, setInventory] = useState([]);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [shopOpen, setShopOpen] = useState(false);
+  const [isDead, setIsDead] = useState(false);
+  const [dropDialog, setDropDialog] = useState(null);
+  const inventoryRef = useRef([]);
 
   useEffect(() => {
     gameSocket.connect(session.access_token);
@@ -47,10 +55,16 @@ export default function GameScreen({ character, session, onLeave }) {
         sceneRef.current = scene;
         scene.setMyId(character.id);
         scene.setOnErrorCallback((err) => {
-          setWsError(err);
-          setTimeout(() => setWsError(''), 3000);
+          setChatMessages((prev) => [...prev, { id: 'system', name: 'System', text: err }]);
         });
         scene.setOnOpenShop(() => setShopOpen(true));
+        scene.setOnDied(() => setIsDead(true));
+        scene.setOnDropRequest(() => {
+          if (gameSocket.selectedSlot != null) {
+            const item = inventoryRef.current.find(inv => inv.slot === gameSocket.selectedSlot);
+            if (item) setDropDialog({ slot: gameSocket.selectedSlot, itemType: item.itemType, maxQty: item.quantity, qty: 1 });
+          }
+        });
         clearInterval(checkScene);
       }
       if (checkSceneCount > 50) clearInterval(checkScene);
@@ -60,12 +74,12 @@ export default function GameScreen({ character, session, onLeave }) {
       sceneRef.current?.handleServerMessage(msg);
       if (msg.type === 'stats_update') {
         setStats(msg);
-        if (msg.inventory) setInventory(msg.inventory);
+        if (msg.inventory) { setInventory(msg.inventory); inventoryRef.current = msg.inventory; }
       }
       if (msg.type === 'world_state') {
         if (msg.stats) {
           setStats(msg.stats);
-          if (msg.stats.inventory) setInventory(msg.stats.inventory);
+          if (msg.stats.inventory) { setInventory(msg.stats.inventory); inventoryRef.current = msg.stats.inventory; }
         }
       }
       if (msg.type === 'chat_message') {
@@ -124,6 +138,18 @@ export default function GameScreen({ character, session, onLeave }) {
     gameSocket.send('sell_item', { slot, quantity });
   };
 
+  const handleRevive = () => {
+    gameSocket.send('revive');
+    setIsDead(false);
+  };
+
+  const handleDropConfirm = (quantity) => {
+    if (dropDialog) {
+      gameSocket.send('drop_item', { slot: dropDialog.slot, quantity });
+      setDropDialog(null);
+    }
+  };
+
   return (
     <div className="game-container">
       <div ref={containerRef} className="game-canvas" />
@@ -149,6 +175,30 @@ export default function GameScreen({ character, session, onLeave }) {
           onSell={handleSell}
           onClose={() => setShopOpen(false)}
         />
+      )}
+      {isDead && (
+        <div className="death-overlay">
+          <div className="death-box">
+            <div className="death-text">Te han matado</div>
+            <button className="revive-btn" onClick={handleRevive}>Revivir</button>
+          </div>
+        </div>
+      )}
+      {dropDialog && (
+        <div className="drop-overlay">
+          <div className="drop-box">
+            <div className="drop-title">Tirar {ITEM_DEFS[dropDialog.itemType]?.name || dropDialog.itemType}</div>
+            <div className="drop-qty-row">
+              <button className="shop-qty-btn" disabled={dropDialog.qty <= 1} onClick={() => setDropDialog(p => ({ ...p, qty: p.qty - 1 }))}>-</button>
+              <input className="shop-qty-input" type="number" value={dropDialog.qty} min={1} max={dropDialog.maxQty} onChange={e => setDropDialog(p => ({ ...p, qty: Math.max(1, Math.min(p.maxQty, parseInt(e.target.value) || 1)) }))} />
+              <button className="shop-qty-btn" disabled={dropDialog.qty >= dropDialog.maxQty} onClick={() => setDropDialog(p => ({ ...p, qty: p.qty + 1 }))}>+</button>
+            </div>
+            <div className="drop-buttons">
+              <button className="drop-confirm-btn" onClick={() => handleDropConfirm(dropDialog.qty)}>Tirar</button>
+              <button className="drop-cancel-btn" onClick={() => setDropDialog(null)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

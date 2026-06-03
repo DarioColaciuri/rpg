@@ -77,6 +77,7 @@ export class GameServer {
     this.initGroundItems();
     this.startStaminaRegen();
     this.startStatDrain();
+    this.startHpRegen();
   }
 
   startStaminaRegen() {
@@ -124,6 +125,23 @@ export class GameServer {
         }
       }
     }, STAT_DRAIN_INTERVAL);
+  }
+
+  startHpRegen() {
+    setInterval(() => {
+      for (const [, p] of this.players) {
+        if (p.stamina > 0 && p.hp < p.maxHp) {
+          p._hpRegenAcc = (p._hpRegenAcc || 0) + p.maxHp * 0.005;
+          if (p._hpRegenAcc >= 1) {
+            const add = Math.floor(p._hpRegenAcc);
+            p.hp = Math.min(p.hp + add, p.maxHp);
+            p._hpRegenAcc -= add;
+            const ws = this.getWsByPlayerId(p.id);
+            if (ws) this.sendTo(ws, { type: 'stats_update', ...this.getStats(p) });
+          }
+        }
+      }
+    }, 1000);
   }
 
   playerData(player) {
@@ -263,7 +281,7 @@ export class GameServer {
     const playerId = this.wsToPlayer.get(ws);
     if (!playerId) return;
     const player = this.players.get(playerId);
-    if (!player) return;
+    if (!player || player.dead) return;
 
     const groundItem = this.groundItems.get(groundItemId);
     if (!groundItem) { this.sendTo(ws, { type: 'error', msg: 'Item not found' }); return; }
@@ -302,21 +320,23 @@ export class GameServer {
     return { inventoryChanged: true };
   }
 
-  handleDropItem(ws, slot) {
+  handleDropItem(ws, slot, quantity = 1) {
     const playerId = this.wsToPlayer.get(ws);
     if (!playerId) return;
     const player = this.players.get(playerId);
-    if (!player) return;
+    if (!player || player.dead) return;
 
     const invItem = player.inventory.find(inv => inv.slot === slot);
     if (!invItem) { this.sendTo(ws, { type: 'error', msg: 'No item in slot' }); return; }
 
-    invItem.quantity -= 1;
+    quantity = Math.min(Math.max(1, Math.floor(quantity) || 1), invItem.quantity);
+
+    invItem.quantity -= quantity;
     if (invItem.quantity <= 0) player.inventory = player.inventory.filter(inv => inv.slot !== slot);
 
     const id = `${player.map}_${this._nextGroundItemId++}`;
-    this.groundItems.set(id, { id, map: player.map, px: player.px, py: player.py, itemType: invItem.itemType });
-    this.broadcastToMap(player.map, { type: 'ground_item_added', id, map: player.map, px: player.px, py: player.py, itemType: invItem.itemType });
+    this.groundItems.set(id, { id, map: player.map, px: player.px, py: player.py, itemType: invItem.itemType, amount: quantity });
+    this.broadcastToMap(player.map, { type: 'ground_item_added', id, map: player.map, px: player.px, py: player.py, itemType: invItem.itemType, amount: quantity });
     this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
     return { inventoryChanged: true };
   }
@@ -325,7 +345,7 @@ export class GameServer {
     const playerId = this.wsToPlayer.get(ws);
     if (!playerId) return;
     const player = this.players.get(playerId);
-    if (!player) return;
+    if (!player || player.dead) return;
 
     const invItem = player.inventory.find(inv => inv.slot === slot);
     if (!invItem) { this.sendTo(ws, { type: 'error', msg: 'No item in slot' }); return; }
@@ -347,7 +367,7 @@ export class GameServer {
     const playerId = this.wsToPlayer.get(ws);
     if (!playerId) return;
     const player = this.players.get(playerId);
-    if (!player) return;
+    if (!player || player.dead) return;
 
     quantity = Math.max(1, Math.floor(quantity) || 1);
 
@@ -379,7 +399,7 @@ export class GameServer {
     const playerId = this.wsToPlayer.get(ws);
     if (!playerId) return;
     const player = this.players.get(playerId);
-    if (!player) return;
+    if (!player || player.dead) return;
 
     const invItem = player.inventory.find(inv => inv.slot === slot);
     if (!invItem) { this.sendTo(ws, { type: 'error', msg: 'No item in slot' }); return; }
@@ -403,10 +423,48 @@ export class GameServer {
     if (!playerId) return;
     const player = this.players.get(playerId);
     if (!player) return;
+    if (player.dead) return;
 
     if (player.stamina <= 0) return;
     player.stamina = Math.max(0, player.stamina - RUN_CONSUME_AMOUNT);
     this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
+  }
+
+  handleRevive(ws) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const player = this.players.get(playerId);
+    if (!player) return;
+    if (!player.dead) return;
+
+    player.dead = false;
+    player.hp = player.maxHp;
+    const oldMap = player.map;
+    player.map = 'city';
+    const spawn = this.findSpawn('city');
+    player.px = spawn.px;
+    player.py = spawn.py;
+
+    if (oldMap !== 'city') {
+      this.broadcastToMap(oldMap, { type: 'player_left', id: player.id }, ws);
+    }
+    this.sendTo(ws, {
+      type: 'map_change',
+      map: player.map,
+      px: player.px,
+      py: player.py,
+      stats: this.getStats(player),
+    });
+    this.sendTo(ws, {
+      type: 'world_state',
+      yourId: player.id,
+      map: player.map,
+      players: this.getPlayersOnMap(player.map, player.id),
+      stats: this.getStats(player),
+      groundItems: this.getGroundItemsOnMap(player.map),
+      npcs: this.getNpcsOnMap(player.map),
+    });
+    this.broadcastToMap(player.map, { type: 'player_joined', player: this.playerData(player) }, ws);
   }
 
   sendTo(ws, msg) {
@@ -429,7 +487,7 @@ export class GameServer {
     const playerId = this.wsToPlayer.get(ws);
     if (!playerId) return;
     const player = this.players.get(playerId);
-    if (!player) return;
+    if (!player || player.dead) return;
 
     if (typeof px !== 'number' || typeof py !== 'number') return;
 
@@ -492,7 +550,10 @@ export class GameServer {
 
     if (!isPixelWalkable(player.map, px, py, PLAYER_W, PLAYER_H)) return;
 
-    if (this.isPixelOccupied(player.map, px, py, PLAYER_W, PLAYER_H, player.id)) return;
+    const mapData2 = MAPS[player.map];
+    if (!mapData2 || !mapData2.safe) {
+      if (this.isPixelOccupied(player.map, px, py, PLAYER_W, PLAYER_H, player.id)) return;
+    }
 
     player.px = px;
     player.py = py;
@@ -522,16 +583,16 @@ export class GameServer {
     const playerId = this.wsToPlayer.get(ws);
     if (!playerId) return;
     const attacker = this.players.get(playerId);
-    if (!attacker) return;
+    if (!attacker || attacker.dead) return;
 
     const map = MAPS[attacker.map];
     if (!map || map.safe) {
-      this.sendTo(ws, { type: 'error', msg: 'No PvP in safe zone' });
+      this.sendTo(ws, { type: 'error', msg: 'No puedes atacar en zonas seguras' });
       return;
     }
 
     if (attacker.stamina < 1) {
-      this.sendTo(ws, { type: 'error', msg: 'Not enough stamina' });
+      this.sendTo(ws, { type: 'error', msg: 'No tienes suficiente stamina' });
       return;
     }
 
@@ -555,7 +616,7 @@ export class GameServer {
     }
 
     if (!target) {
-      this.sendTo(ws, { type: 'error', msg: 'No target nearby' });
+      this.sendTo(ws, { type: 'attack_miss' });
       return;
     }
 
@@ -574,34 +635,19 @@ export class GameServer {
     this.broadcastToMap(attacker.map, msg, null);
     this.sendTo(ws, { type: 'stats_update', ...this.getStats(attacker) });
 
+    const targetWs = this.getWsByPlayerId(target.id);
+    if (targetWs) {
+      this.sendTo(targetWs, { type: 'stats_update', ...this.getStats(target) });
+    }
+
     if (target.hp <= 0) {
-      const spawn = this.findSpawn(target.map);
-      target.px = spawn.px;
-      target.py = spawn.py;
-      target.hp = target.maxHp;
+      target.dead = true;
       this.broadcastToMap(target.map, {
-        type: 'player_respawned',
+        type: 'player_died',
         id: target.id,
         px: target.px,
         py: target.py,
-        hp: target.hp,
-        direction: target.direction ?? 'right',
-        animState: target.animState ?? 'walk',
-        isCrouching: target.isCrouching ?? false,
       });
-      const targetWs = this.getWsByPlayerId(target.id);
-      if (targetWs) {
-        this.sendTo(targetWs, { type: 'stats_update', ...this.getStats(target) });
-        this.sendTo(targetWs, {
-          type: 'player_moved',
-          id: target.id,
-          px: target.px,
-          py: target.py,
-          direction: target.direction,
-          animState: target.animState,
-          isCrouching: target.isCrouching,
-        });
-      }
     }
   }
 
@@ -625,7 +671,7 @@ export class GameServer {
     const playerId = this.wsToPlayer.get(ws);
     if (!playerId) return;
     const caster = this.players.get(playerId);
-    if (!caster) return;
+    if (!caster || caster.dead) return;
 
     if (caster.class !== 'MAGE') {
       this.sendTo(ws, { type: 'error', msg: 'Only mages can cast spells' });
@@ -684,34 +730,19 @@ export class GameServer {
     this.broadcastToMap(caster.map, msg, null);
     this.sendTo(ws, { type: 'stats_update', ...this.getStats(caster) });
 
+    const targetWs = this.getWsByPlayerId(target.id);
+    if (targetWs) {
+      this.sendTo(targetWs, { type: 'stats_update', ...this.getStats(target) });
+    }
+
     if (target.hp <= 0) {
-      const spawn = this.findSpawn(target.map);
-      target.px = spawn.px;
-      target.py = spawn.py;
-      target.hp = target.maxHp;
+      target.dead = true;
       this.broadcastToMap(target.map, {
-        type: 'player_respawned',
+        type: 'player_died',
         id: target.id,
         px: target.px,
         py: target.py,
-        hp: target.hp,
-        direction: target.direction ?? 'right',
-        animState: target.animState ?? 'walk',
-        isCrouching: target.isCrouching ?? false,
       });
-      const targetWs = this.getWsByPlayerId(target.id);
-      if (targetWs) {
-        this.sendTo(targetWs, { type: 'stats_update', ...this.getStats(target) });
-        this.sendTo(targetWs, {
-          type: 'player_moved',
-          id: target.id,
-          px: target.px,
-          py: target.py,
-          direction: target.direction,
-          animState: target.animState,
-          isCrouching: target.isCrouching,
-        });
-      }
     }
   }
 

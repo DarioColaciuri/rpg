@@ -151,6 +151,11 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (msg.type === 'revive') {
+      gameServer.handleRevive(ws);
+      return;
+    }
+
     if (msg.type === 'cast_spell') {
       gameServer.handleCastSpell(ws, msg.targetId);
       return;
@@ -180,7 +185,7 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'drop_item') {
-      const result = gameServer.handleDropItem(ws, msg.slot);
+      const result = gameServer.handleDropItem(ws, msg.slot, msg.quantity ?? 1);
       if (result?.inventoryChanged) {
         const pId = gameServer.wsToPlayer.get(ws);
         if (pId) await saveInventory(supabase, pId, gameServer.getInventory(pId));
@@ -247,14 +252,19 @@ wss.on('connection', (ws) => {
       console.log(`${player.name} left the world`);
 
       try {
-        await supabase.from('characters').update({
+        const updateData = {
           map: player.map,
           x: Math.round(player.px),
           y: Math.round(player.py),
           food: player.food,
           drink: player.drink,
           gold: player.gold ?? 0,
-        }).eq('id', player.id);
+        };
+        if (player.dead) {
+          updateData.map = 'city';
+          updateData.hp = player.maxHp;
+        }
+        await supabase.from('characters').update(updateData).eq('id', player.id);
 
         await saveInventory(supabase, player.id, player.inventory || []);
       } catch (err) {
