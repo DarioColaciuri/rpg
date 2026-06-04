@@ -179,27 +179,11 @@ export default class Player extends Phaser.GameObjects.Sprite {
   crouch() {
     if (this.isCrouching) return;
     this.isCrouching = true;
-    if (this.hasPhysics && this.body) {
-      const oldBottom = this.body.y + this.body.height;
-      this.body.setSize(PLAYER_W, CROUCH_BODY_H, false);
-      this.body.setOffset(0, PLAYER_H - CROUCH_BODY_H);
-      this.body.position.y = oldBottom - CROUCH_BODY_H;
-      this.body.prev.y = this.body.position.y;
-      this.body.updateCenter();
-    }
   }
 
   standUp() {
     if (!this.isCrouching) return;
     this.isCrouching = false;
-    if (this.hasPhysics && this.body) {
-      const oldBottom = this.body.y + this.body.height;
-      this.body.setSize(PLAYER_W, PLAYER_H, false);
-      this.body.setOffset(0, 0);
-      this.body.position.y = oldBottom - PLAYER_H;
-      this.body.prev.y = this.body.position.y;
-      this.body.updateCenter();
-    }
   }
 
   updateAnimation() {
@@ -318,20 +302,6 @@ export default class Player extends Phaser.GameObjects.Sprite {
     const newCrouch = isCrouching ?? false;
     if (newCrouch !== this.isCrouching) {
       this.isCrouching = newCrouch;
-      if (this.hasPhysics && this.body) {
-        const oldBottom = this.body.y + this.body.height;
-        if (newCrouch) {
-          this.body.setSize(PLAYER_W, CROUCH_BODY_H, false);
-          this.body.setOffset(0, PLAYER_H - CROUCH_BODY_H);
-          this.body.position.y = oldBottom - CROUCH_BODY_H;
-        } else {
-          this.body.setSize(PLAYER_W, PLAYER_H, false);
-          this.body.setOffset(0, 0);
-          this.body.position.y = oldBottom - PLAYER_H;
-        }
-        this.body.prev.y = this.body.position.y;
-        this.body.updateCenter();
-      }
     }
 
     if (!hasDir) return;
