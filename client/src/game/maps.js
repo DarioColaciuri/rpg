@@ -1,6 +1,6 @@
 export const TILE_SIZE = 32;
-export const MAP_COLS = 50;
-export const MAP_ROWS = 30;
+export const MAP_COLS = 200;
+export const MAP_ROWS = 120;
 
 export function checkMapTransition(mapName, px) {
   if (mapName === 'city' && px > (MAP_COLS - 1) * TILE_SIZE) {

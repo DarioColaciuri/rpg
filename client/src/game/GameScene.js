@@ -50,6 +50,9 @@ export default class GameScene extends Phaser.Scene {
     this._lastCursorSpell = null;
     this._isMeditating = false;
     this.enemySprites = new Map();
+    this._bgImage = null;
+    this.thinGroup = null;
+    this._sWasDown = false;
   }
 
   setMyId(id) {
@@ -76,8 +79,10 @@ export default class GameScene extends Phaser.Scene {
     preloadSpritesheets(this);
     this.load.tilemapTiledJSON('city', 'maps/city.json');
     this.load.tilemapTiledJSON('forest', 'maps/forest.json');
-    this.load.image('tiles_city', 'maps/tiles_city.png');
+    this.load.image('tiles_city', 'maps/tiles_city2.png');
+    this.load.image('tiles_city3', 'maps/tiles_city3.png');
     this.load.image('tiles_forest', 'maps/tiles_forest.png');
+    this.load.image('bg_city', 'maps/bg_city.png');
   }
 
   create() {
@@ -188,9 +193,25 @@ export default class GameScene extends Phaser.Scene {
 
     this.currentMap = mapName;
     this.currentMapData = this.make.tilemap({ key: mapName });
-    const tileset = this.currentMapData.addTilesetImage(`tiles_${mapName}`);
-    this.currentLayer = this.currentMapData.createLayer('ground', tileset);
-    this.currentLayer.setCollision([2, 3]);
+
+    if (this._bgImage) { this._bgImage.destroy(); this._bgImage = null; }
+    const bgKey = `bg_${mapName}`;
+    if (this.textures.exists(bgKey)) {
+      const w = this.currentMapData.width * TILE_SIZE;
+      const h = this.currentMapData.height * TILE_SIZE;
+      this._bgImage = this.add.image(0, 0, bgKey)
+        .setOrigin(0, 0)
+        .setDisplaySize(w, h)
+        .setDepth(0);
+    }
+
+    const tilesets = [];
+    for (const ts of this.currentMapData.tilesets) {
+      const tsObj = this.currentMapData.addTilesetImage(ts.name, ts.name);
+      if (tsObj) tilesets.push(tsObj);
+    }
+    this.currentLayer = this.currentMapData.createLayer('ground', tilesets);
+    this.currentLayer.setDepth(1);
     this.currentLayer.setCollisionByProperty({ type: 'solid' });
     this.currentLayer.setCollisionByProperty({ type: 'platform' });
 
@@ -206,6 +227,21 @@ export default class GameScene extends Phaser.Scene {
 
     this.solidGroup = this.physics.add.staticGroup();
     this.boundaryGroup = this.physics.add.staticGroup();
+    if (this.thinGroup) this.thinGroup.destroy(true, true);
+    this.thinGroup = this.physics.add.staticGroup();
+
+    for (let y = 0; y < this.currentLayer.height; y++) {
+      for (let x = 0; x < this.currentLayer.width; x++) {
+        const tile = this.currentLayer.getTileAt(x, y);
+        if (tile?.properties?.type === 'thin_platform') {
+          const px = tile.pixelX + TILE_SIZE / 2;
+          const py = tile.pixelY + 32 - 2.5;
+          const rect = this.add.rectangle(px, py, TILE_SIZE, 5);
+          rect.visible = false;
+          this.thinGroup.add(rect);
+        }
+      }
+    }
 
     if (mapName === 'city') {
       const wall = this.add.rectangle(mapPixelW + 2, mapPixelH / 2, 4, mapPixelH);
@@ -225,10 +261,19 @@ export default class GameScene extends Phaser.Scene {
   _addPlayerColliders(player) {
     if (!player.hasPhysics) return;
     if (this.currentLayer) {
-      this._solidCollider = this.physics.add.collider(player, this.currentLayer, (p, tile) => {
+      this._solidCollider = this.physics.add.collider(player, this.currentLayer,
+        null,
+        (p, tile) => {
         if (tile.properties?.type === 'platform') {
           if (p.body.velocity.y < 0 || p.y + 32 > tile.pixelY + 32) return false;
         }
+        return true;
+      });
+    }
+    if (this.thinGroup) {
+      this.physics.add.collider(player, this.thinGroup, null, (p, rect) => {
+        if (p.droppingThrough) return false;
+        if (p.body.velocity.y < 0) return false;
         return true;
       });
     }
@@ -1035,8 +1080,18 @@ export default class GameScene extends Phaser.Scene {
     }
 
     if (this.cursors.s.isDown) {
+      if (!this._sWasDown) {
+        const tileX = Math.floor(player.x / TILE_SIZE);
+        const tileY = Math.floor((player.y + 32) / TILE_SIZE);
+        const tile = this.currentLayer?.getTileAt(tileX, tileY);
+        if (tile?.properties?.type === 'thin_platform') {
+          player.dropThrough();
+        }
+      }
       player.crouch();
+      this._sWasDown = true;
     } else {
+      this._sWasDown = false;
       if (player.isCrouching) player.standUp();
     }
 

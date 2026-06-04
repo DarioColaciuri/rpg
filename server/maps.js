@@ -9,15 +9,59 @@ export const TILE_SIZE = 32;
 export const TILE_AIR = 0;
 export const TILE_SOLID = 1;
 export const TILE_PLATFORM = 2;
-export const MAP_COLS = 50;
-export const MAP_ROWS = 30;
+export const TILE_THIN_PLATFORM = 3;
+export const MAP_COLS = 200;
+export const MAP_ROWS = 120;
 const PLAYER_H = 64;
 
-// GID to type mapping (GID 1=air, 2=solid, 3=platform)
-function gidToType(gid) {
-  if (gid === 2) return TILE_SOLID;
-  if (gid === 3) return TILE_PLATFORM;
-  return TILE_AIR;
+function typeToTileValue(type) {
+  switch (type) {
+    case 'solid': return TILE_SOLID;
+    case 'platform': return TILE_PLATFORM;
+    case 'thin_platform': return TILE_THIN_PLATFORM;
+    default: return TILE_AIR;
+  }
+}
+
+function parseTsxTileTypes(tsxRaw) {
+  const tileMap = new Map();
+  const tileRegex = /<tile id="(\d+)"[^>]*>([\s\S]*?)<\/tile>/g;
+  let match;
+  while ((match = tileRegex.exec(tsxRaw)) !== null) {
+    const id = parseInt(match[1], 10);
+    const inner = match[2];
+    const typeMatch = inner.match(/<property name="type" value="([^"]+)"/);
+    if (typeMatch) {
+      tileMap.set(id, typeToTileValue(typeMatch[1]));
+    }
+  }
+  return tileMap;
+}
+
+function buildGidTypeMap(json, mapDir) {
+  const gidMap = new Map();
+  for (const ts of json.tilesets) {
+    const firstgid = ts.firstgid;
+    if (ts.tiles) {
+      for (const t of ts.tiles) {
+        const gid = firstgid + t.id;
+        const type = t.properties?.find(p => p.name === 'type')?.value || 'air';
+        gidMap.set(gid, typeToTileValue(type));
+      }
+    } else if (ts.source) {
+      try {
+        const tsxPath = join(mapDir, ts.source);
+        const tsxRaw = readFileSync(tsxPath, 'utf8');
+        const tsxMap = parseTsxTileTypes(tsxRaw);
+        for (const [localId, tileType] of tsxMap) {
+          gidMap.set(firstgid + localId, tileType);
+        }
+      } catch (err) {
+        console.error(`Failed to parse ${ts.source}:`, err.message);
+      }
+    }
+  }
+  return gidMap;
 }
 
 function loadTiledMap(mapName) {
@@ -25,7 +69,8 @@ function loadTiledMap(mapName) {
     const raw = readFileSync(join(MAPS_DIR, `${mapName}.json`), 'utf8');
     const json = JSON.parse(raw);
 
-    // Build 2D tiles array from 1D data layer
+    const gidTypeMap = buildGidTypeMap(json, MAPS_DIR);
+
     const w = json.width;
     const h = json.height;
     const tiles = Array.from({ length: h }, () => Array(w).fill(TILE_AIR));
@@ -34,12 +79,11 @@ function loadTiledMap(mapName) {
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
           const gid = groundLayer.data[y * w + x];
-          tiles[y][x] = gidToType(gid);
+          tiles[y][x] = gidTypeMap.get(gid) ?? TILE_AIR;
         }
       }
     }
 
-    // Properties
     const props = {};
     if (json.properties) {
       for (const p of json.properties) {
@@ -47,7 +91,6 @@ function loadTiledMap(mapName) {
       }
     }
 
-    // Transitions from object layer
     const objectsLayer = json.layers.find(l => l.type === 'objectgroup');
     const transitions = [];
     if (objectsLayer) {
@@ -133,7 +176,6 @@ export function checkMapTransition(mapName, px, py) {
     }
   }
 
-  // Legacy hardcoded for backwards compat
   if (mapName === 'city' && px > (MAP_COLS - 1) * TILE_SIZE) {
     return { map: 'forest', spawnX: TILE_SIZE, spawnY: findGroundY('forest', TILE_SIZE) };
   }
