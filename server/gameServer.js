@@ -11,6 +11,7 @@ const RACE_BONUS = {
 
 const PLAYER_W = 32;
 const PLAYER_H = 64;
+const CROUCH_BODY_H = 45;
 const MOVE_COOLDOWN = 80;
 const MAX_MOVE_DIST = 80;
 
@@ -798,16 +799,18 @@ export class GameServer {
     const dy = Math.abs(py - player.py);
     if (dx > MAX_MOVE_DIST || dy > MAX_MOVE_DIST) return;
 
+    const bodyH = player.isCrouching ? CROUCH_BODY_H : PLAYER_H;
+
     if (px - PLAYER_W / 2 < 0 || px + PLAYER_W / 2 > mapW ||
-        py - PLAYER_H / 2 < 0 || py + PLAYER_H / 2 > mapH) {
+        py - bodyH / 2 < 0 || py + bodyH / 2 > mapH) {
       return;
     }
 
-    if (!isPixelWalkable(player.map, px, py, PLAYER_W, PLAYER_H)) return;
+    if (!isPixelWalkable(player.map, px, py, PLAYER_W, bodyH)) return;
 
     const mapData2 = MAPS[player.map];
     if (!mapData2 || !mapData2.safe) {
-      if (this.isPixelOccupied(player.map, px, py, PLAYER_W, PLAYER_H, player.id)) return;
+      if (this.isPixelOccupied(player.map, px, py, PLAYER_W, bodyH, player.id)) return;
     }
 
     if (player.meditating) {

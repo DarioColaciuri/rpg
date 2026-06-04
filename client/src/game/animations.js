@@ -3,6 +3,8 @@ const SEXES = ['male', 'female'];
 const HEAD_RACES = ['human'];
 const HEAD_VARIANTS = [1, 2];
 const DIRECTIONS = ['left', 'right'];
+const CROUCH_RACES = ['human'];
+const CROUCH_SEXES = ['male'];
 
 const SHEETS = [];
 for (const race of RACES) {
@@ -44,6 +46,24 @@ for (const race of HEAD_RACES) {
   }
 }
 
+const CROUCH_MOVE_SHEETS = [];
+for (const race of CROUCH_RACES) {
+  for (const sex of CROUCH_SEXES) {
+    for (const dir of DIRECTIONS) {
+      CROUCH_MOVE_SHEETS.push(`${race}_${sex}_crouch_move_${dir}`);
+    }
+  }
+}
+
+const CROUCH_STATIC_SHEETS = [];
+for (const race of CROUCH_RACES) {
+  for (const sex of CROUCH_SEXES) {
+    for (const dir of DIRECTIONS) {
+      CROUCH_STATIC_SHEETS.push(`${race}_${sex}_crouch_static_${dir}`);
+    }
+  }
+}
+
 export function preloadSpritesheets(scene) {
   for (const key of SHEETS) {
     scene.load.spritesheet(key, `graphics/characters/${key}.png`, {
@@ -64,6 +84,18 @@ export function preloadSpritesheets(scene) {
     });
   }
   for (const key of HEAD_STATIC_SHEETS) {
+    scene.load.spritesheet(key, `graphics/characters/${key}.png`, {
+      frameWidth: 32,
+      frameHeight: 64,
+    });
+  }
+  for (const key of CROUCH_MOVE_SHEETS) {
+    scene.load.spritesheet(key, `graphics/characters/${key}.png`, {
+      frameWidth: 32,
+      frameHeight: 64,
+    });
+  }
+  for (const key of CROUCH_STATIC_SHEETS) {
     scene.load.spritesheet(key, `graphics/characters/${key}.png`, {
       frameWidth: 32,
       frameHeight: 64,
@@ -116,6 +148,20 @@ export function createAnimations(scene) {
         key,
         frames: scene.anims.generateFrameNumbers(key, { start: 0, end: frameCount - 1 }),
         frameRate: 7,
+        repeat: -1,
+      });
+    }
+  }
+
+  for (const key of CROUCH_MOVE_SHEETS) {
+    if (scene.anims.exists(key)) continue;
+    const texture = scene.textures.get(key);
+    const frameCount = getFrameCount(texture);
+    if (frameCount > 0) {
+      scene.anims.create({
+        key,
+        frames: scene.anims.generateFrameNumbers(key, { start: 0, end: frameCount - 1 }),
+        frameRate: 10,
         repeat: -1,
       });
     }

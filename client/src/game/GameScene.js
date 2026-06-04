@@ -522,7 +522,7 @@ export default class GameScene extends Phaser.Scene {
         if (tile?.properties?.type === 'thin_platform') {
           const px = tile.pixelX + TILE_SIZE / 2;
           const py = tile.pixelY + 32 - 2.5;
-          const rect = this.add.rectangle(px, py, TILE_SIZE, 5);
+          const rect = this.add.rectangle(px, py, 24, 5);
           rect.visible = false;
           this.thinGroup.add(rect);
         }
