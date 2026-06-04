@@ -10,8 +10,8 @@ export const TILE_AIR = 0;
 export const TILE_SOLID = 1;
 export const TILE_PLATFORM = 2;
 export const TILE_THIN_PLATFORM = 3;
-export const MAP_COLS = 200;
-export const MAP_ROWS = 120;
+export const MAP_COLS = 100;
+export const MAP_ROWS = 60;
 const PLAYER_H = 64;
 
 function typeToTileValue(type) {
