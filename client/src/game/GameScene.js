@@ -53,6 +53,8 @@ export default class GameScene extends Phaser.Scene {
     this._bgImage = null;
     this.thinGroup = null;
     this._sWasDown = false;
+    this._parallaxLayers = [];
+    this._parallaxTweens = [];
   }
 
   setMyId(id) {
@@ -82,11 +84,11 @@ export default class GameScene extends Phaser.Scene {
     this.load.image('tiles_city', 'maps/tiles_city2.png');
     this.load.image('tiles_city3', 'maps/tiles_city3.png');
     this.load.image('tiles_forest', 'maps/tiles_forest.png');
-    this.load.image('bg_city', 'maps/bg_city.png');
   }
 
   create() {
     createAnimations(this);
+    this._generateParallaxTextures();
 
     const KEY_W = Phaser.Input.Keyboard.KeyCodes.W;
     const KEY_A = Phaser.Input.Keyboard.KeyCodes.A;
@@ -181,6 +183,226 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
+  _generateParallaxTextures() {
+    const W = 1600, H = 960;
+
+    function createCanvas(scene, key) {
+      if (scene.textures.exists(key)) scene.textures.remove(key);
+      return scene.textures.createCanvas(key, W, H);
+    }
+
+    function rnd(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+    // 1 — background: night sky gradient with stars
+    {
+      const canvas = createCanvas(this, 'parallax_background');
+      const ctx = canvas.getContext();
+      const grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, '#0a0a1a');
+      grad.addColorStop(0.4, '#12102a');
+      grad.addColorStop(0.7, '#1a1030');
+      grad.addColorStop(1, '#100820');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+
+      for (let i = 0; i < 300; i++) {
+        const sx = rnd(0, W), sy = rnd(0, H * 0.7);
+        const r = Math.random() * 1.8 + 0.2;
+        ctx.beginPath();
+        ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.6 + 0.2})`;
+        ctx.fill();
+      }
+      canvas.refresh();
+    }
+
+    // 2 — sun: large neon circle with glow
+    {
+      const canvas = createCanvas(this, 'parallax_sun');
+      const ctx = canvas.getContext();
+      const cx = W - 240, cy = 160;
+      const rad = 100;
+      const glow = ctx.createRadialGradient(cx, cy, rad * 0.15, cx, cy, rad * 2.8);
+      glow.addColorStop(0, 'rgba(255,180,60,0.95)');
+      glow.addColorStop(0.2, 'rgba(255,120,30,0.7)');
+      glow.addColorStop(0.5, 'rgba(200,40,80,0.25)');
+      glow.addColorStop(0.8, 'rgba(60,10,40,0.05)');
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(cx - rad * 3, cy - rad * 3, rad * 6, rad * 6);
+
+      const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+      core.addColorStop(0, '#fff8e0');
+      core.addColorStop(0.4, '#ffcc40');
+      core.addColorStop(1, 'rgba(255,80,20,0)');
+      ctx.fillStyle = core;
+      ctx.beginPath();
+      ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+      ctx.fill();
+      canvas.refresh();
+    }
+
+    // 3 — light: soft rays from top-right
+    {
+      const canvas = createCanvas(this, 'parallax_light');
+      const ctx = canvas.getContext();
+      const cx = W - 200, cy = 120;
+      ctx.globalAlpha = 0.12;
+      for (let i = -4; i <= 4; i++) {
+        const angle = (Math.PI / 3) + i * 0.08;
+        const len = 1400 + i * 80;
+        const ex = cx + Math.cos(angle) * len;
+        const ey = cy + Math.sin(angle) * len;
+        const grad = ctx.createLinearGradient(cx, cy, ex, ey);
+        grad.addColorStop(0, 'rgba(255,200,100,0.6)');
+        grad.addColorStop(0.3, 'rgba(255,150,60,0.3)');
+        grad.addColorStop(1, 'rgba(255,80,30,0)');
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 20 + Math.abs(i) * 8;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      canvas.refresh();
+    }
+
+    // 4 — smog1: scattered dark clouds (far)
+    {
+      const canvas = createCanvas(this, 'parallax_smog1');
+      const ctx = canvas.getContext();
+      for (let i = 0; i < 60; i++) {
+        const ex = rnd(0, W + 200), ey = rnd(H * 0.55, H * 0.95);
+        const rx = rnd(60, 220), ry = rnd(20, 50);
+        ctx.beginPath();
+        ctx.ellipse(ex, ey, rx, ry, Math.random() * 0.3, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(20,15,25,${Math.random() * 0.25 + 0.05})`;
+        ctx.fill();
+      }
+      canvas.refresh();
+    }
+
+    // 5 — smog2: lighter fog layer (near)
+    {
+      const canvas = createCanvas(this, 'parallax_smog2');
+      const ctx = canvas.getContext();
+      for (let i = 0; i < 40; i++) {
+        const ex = rnd(0, W + 300), ey = rnd(H * 0.6, H * 0.98);
+        const rx = rnd(80, 300), ry = rnd(25, 70);
+        ctx.beginPath();
+        ctx.ellipse(ex, ey, rx, ry, Math.random() * 0.2, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(30,20,40,${Math.random() * 0.2 + 0.04})`;
+        ctx.fill();
+      }
+      canvas.refresh();
+    }
+
+    // 6-9 — city silhouettes: atmospheric perspective, width 192-352, per-layer density
+    const cityDefs = [
+      { key: 'parallax_city4plan',   count: 22, wMin: 100, wMax: 150, hMin: 160, hMax: 300, body: '#1a1a1a', noGaps: true },
+      { key: 'parallax_city3plan',   count: 7,  wMin: 110, wMax: 170, hMin: 240, hMax: 400, body: '#0f0f0f' },
+      { key: 'parallax_city2plan',   count: 5,  wMin: 130, wMax: 200, hMin: 300, hMax: 480, body: '#070707' },
+      { key: 'parallax_city1plan',   count: 4,  wMin: 160, wMax: 240, hMin: 360, hMax: 620, body: '#010101' },
+    ];
+
+    for (const cd of cityDefs) {
+      const buildings = [];
+
+      if (cd.noGaps) {
+        let cx = 0;
+        while (cx < W) {
+          const bw = rnd(cd.wMin, cd.wMax);
+          const bh = rnd(cd.hMin, cd.hMax);
+          buildings.push({ w: bw, h: bh, x: cx });
+          cx += rnd(Math.floor(bw * 0.5), Math.floor(bw * 0.75));
+        }
+      } else {
+        const slotW = W / cd.count;
+        for (let i = 0; i < cd.count; i++) {
+          const bw = rnd(cd.wMin, cd.wMax);
+          const bh = rnd(cd.hMin, cd.hMax);
+          const slotStart = slotW * i;
+          const maxOffset = Math.max(0, slotW - bw);
+          const x = Math.round(slotStart + rnd(0, maxOffset));
+          buildings.push({ w: bw, h: bh, x });
+        }
+      }
+      buildings.sort((a, b) => a.x - b.x);
+
+      const WIN_COLOR = '#ffcc44';
+      const FLOOR_H = 28, WIN_W = 4, WIN_H = 5, WIN_GAP_X = 20, PAD = 12;
+
+      function forEachWindow(b, fn) {
+        const startY = H - b.h + PAD + 6;
+        const endY = H - PAD;
+        for (let wy = startY; wy + WIN_H <= endY; wy += FLOOR_H) {
+          for (let wx = b.x + PAD; wx + WIN_W <= b.x + b.w - PAD; wx += WIN_GAP_X) {
+            fn(Math.floor(wx), Math.floor(wy));
+          }
+        }
+      }
+
+      // --- Base: buildings + ~60% static windows ---
+      {
+        const canvas = createCanvas(this, cd.key);
+        const ctx = canvas.getContext();
+        for (const b of buildings) {
+          ctx.fillStyle = cd.body;
+          ctx.fillRect(b.x, H - b.h, b.w, b.h + 2);
+          forEachWindow(b, (wx, wy) => {
+            if (Math.random() < 0.55) {
+              ctx.save();
+              ctx.globalAlpha = 0.5 + Math.random() * 0.5;
+              ctx.fillStyle = WIN_COLOR;
+              ctx.fillRect(wx, wy, WIN_W, WIN_H);
+              ctx.restore();
+            }
+          });
+        }
+        canvas.refresh();
+      }
+
+      // --- Flicker A ---
+      {
+        const key = cd.key + '_flicker_a';
+        const canvas = createCanvas(this, key);
+        const ctx = canvas.getContext();
+        for (const b of buildings) {
+          forEachWindow(b, (wx, wy) => {
+            if (Math.random() < 0.22) {
+              ctx.save();
+              ctx.globalAlpha = 0.5 + Math.random() * 0.5;
+              ctx.fillStyle = WIN_COLOR;
+              ctx.fillRect(wx, wy, WIN_W, WIN_H);
+              ctx.restore();
+            }
+          });
+        }
+        canvas.refresh();
+      }
+
+      // --- Flicker B ---
+      {
+        const key = cd.key + '_flicker_b';
+        const canvas = createCanvas(this, key);
+        const ctx = canvas.getContext();
+        for (const b of buildings) {
+          forEachWindow(b, (wx, wy) => {
+            if (Math.random() < 0.14) {
+              ctx.save();
+              ctx.globalAlpha = 0.5 + Math.random() * 0.5;
+              ctx.fillStyle = WIN_COLOR;
+              ctx.fillRect(wx, wy, WIN_W, WIN_H);
+              ctx.restore();
+            }
+          });
+        }
+        canvas.refresh();
+      }
+    }
+  }
+
   loadMap(mapName) {
     if (this.solidGroup) this.solidGroup.destroy(true, true);
     if (this.boundaryGroup) this.boundaryGroup.destroy(true, true);
@@ -194,15 +416,79 @@ export default class GameScene extends Phaser.Scene {
     this.currentMap = mapName;
     this.currentMapData = this.make.tilemap({ key: mapName });
 
+    for (const img of this._parallaxLayers) img.destroy();
+    for (const t of this._parallaxTweens) t.stop();
+    this._parallaxLayers = [];
+    this._parallaxTweens = [];
+
     if (this._bgImage) { this._bgImage.destroy(); this._bgImage = null; }
-    const bgKey = `bg_${mapName}`;
-    if (this.textures.exists(bgKey)) {
-      const w = this.currentMapData.width * TILE_SIZE;
-      const h = this.currentMapData.height * TILE_SIZE;
-      this._bgImage = this.add.image(0, 0, bgKey)
-        .setOrigin(0, 0)
-        .setDisplaySize(w, h)
-        .setDepth(0);
+
+    const mapW = this.currentMapData.width * TILE_SIZE;
+    const mapH = this.currentMapData.height * TILE_SIZE;
+    const hasParallax = this.textures.exists('parallax_background');
+
+    if (hasParallax) {
+      const defs = [
+        { key: 'parallax_background', sx: 0.0 },
+        { key: 'parallax_sun',        sx: 0.0 },
+        { key: 'parallax_light',      sx: 0.0 },
+        { key: 'parallax_smog1',      sx: 0.15, alpha: 0.45, drift: 30,  driftMs: 8000 },
+        { key: 'parallax_smog2',      sx: 0.25, alpha: 0.35, drift: -25, driftMs: 6000 },
+        { key: 'parallax_city4plan',  sx: 0.4 },
+        { key: 'parallax_city4plan_flicker_a', sx: 0.4,  flicker: true, flickerMs: 1000, flickerMin: 0.02, flickerMax: 0.8 },
+        { key: 'parallax_city4plan_flicker_b', sx: 0.4,  flicker: true, flickerMs: 1700, flickerMin: 0.03, flickerMax: 0.7 },
+        { key: 'parallax_city3plan',  sx: 0.55 },
+        { key: 'parallax_city3plan_flicker_a', sx: 0.55, flicker: true, flickerMs: 1200, flickerMin: 0.02, flickerMax: 0.75 },
+        { key: 'parallax_city3plan_flicker_b', sx: 0.55, flicker: true, flickerMs: 2000, flickerMin: 0.03, flickerMax: 0.65 },
+        { key: 'parallax_city2plan',  sx: 0.7 },
+        { key: 'parallax_city2plan_flicker_a', sx: 0.7,  flicker: true, flickerMs: 1400, flickerMin: 0.02, flickerMax: 0.7 },
+        { key: 'parallax_city2plan_flicker_b', sx: 0.7,  flicker: true, flickerMs: 2300, flickerMin: 0.03, flickerMax: 0.6 },
+        { key: 'parallax_city1plan',  sx: 0.85 },
+        { key: 'parallax_city1plan_flicker_a', sx: 0.85, flicker: true, flickerMs: 1600, flickerMin: 0.02, flickerMax: 0.65 },
+        { key: 'parallax_city1plan_flicker_b', sx: 0.85, flicker: true, flickerMs: 2600, flickerMin: 0.03, flickerMax: 0.55 },
+      ];
+
+      for (const d of defs) {
+        if (!this.textures.exists(d.key)) continue;
+        const img = this.add.image(0, 0, d.key)
+          .setOrigin(0, 0)
+          .setDisplaySize(mapW, mapH)
+          .setDepth(0)
+          .setScrollFactor(d.sx, 1);
+        if (d.alpha !== undefined) img.setAlpha(d.alpha);
+        if (d.drift) {
+          const t = this.tweens.add({
+            targets: img,
+            x: img.x + d.drift,
+            duration: d.driftMs,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut',
+          });
+          this._parallaxTweens.push(t);
+        }
+        if (d.flicker) {
+          img.setAlpha(d.flickerMax);
+          const t = this.tweens.add({
+            targets: img,
+            alpha: d.flickerMin,
+            duration: d.flickerMs,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut',
+          });
+          this._parallaxTweens.push(t);
+        }
+        this._parallaxLayers.push(img);
+      }
+    } else {
+      const bgKey = `bg_${mapName}`;
+      if (this.textures.exists(bgKey)) {
+        this._bgImage = this.add.image(0, 0, bgKey)
+          .setOrigin(0, 0)
+          .setDisplaySize(mapW, mapH)
+          .setDepth(0);
+      }
     }
 
     const tilesets = [];
