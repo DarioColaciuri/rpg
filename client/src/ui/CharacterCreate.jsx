@@ -2,12 +2,23 @@ import React, { useState } from 'react';
 import { supabase } from '../supabaseClient.js';
 
 const CLASS_STATS = {
-  WARRIOR: { hp: 20, mana: 10, desc: 'High HP, high melee damage' },
-  MAGE: { hp: 10, mana: 30, desc: 'Low HP, high mana, spells' },
+  WARRIOR: { hp: 120, mana: 10, stamina: 20, desc: 'High HP, high melee damage' },
+  HUNTER: { hp: 100, mana: 10, stamina: 25, desc: 'Ranged specialist, high stamina' },
+  PALADIN: { hp: 110, mana: 30, stamina: 20, desc: 'Holy warrior, can heal' },
+  ASSASSIN: { hp: 90, mana: 15, stamina: 30, desc: 'Stealthy, high stamina' },
+  CLERIC: { hp: 85, mana: 60, stamina: 20, desc: 'Healer, high mana' },
+  BARD: { hp: 85, mana: 60, stamina: 22, desc: 'Support, high mana' },
+  MAGE: { hp: 60, mana: 100, stamina: 20, desc: 'Low HP, high mana, spells' },
+  DRUID: { hp: 80, mana: 60, stamina: 20, desc: 'Nature caster, can heal' },
+  BANDIT: { hp: 95, mana: 15, stamina: 22, desc: 'Agile fighter' },
 };
 const RACE_STATS = {
-  HUMAN: { hp: 5, mana: 0, desc: 'More HP' },
-  GNOME: { hp: 0, mana: 5, desc: 'More mana' },
+  HUMAN: { hp: 15, mana: 0, stamina: 1, desc: 'Balanced' },
+  ELF: { hp: 5, mana: 10, stamina: 2, desc: 'More mana, agile' },
+  DROW: { hp: 10, mana: 5, stamina: 1, desc: 'Dark elf, balanced' },
+  GNOME: { hp: -5, mana: 15, stamina: 3, desc: 'Less HP, more mana' },
+  DWARF: { hp: 20, mana: -5, stamina: 0, desc: 'More HP, less mana' },
+  ORC: { hp: 25, mana: -5, stamina: 0, desc: 'Most HP, less mana' },
 };
 
 export default function CharacterCreate({ session, onBack, onCreated }) {
@@ -25,7 +36,7 @@ export default function CharacterCreate({ session, onBack, onCreated }) {
     return {
       hp: base.hp + bonus.hp,
       mana: base.mana + bonus.mana,
-      stamina: 20,
+      stamina: base.stamina + (bonus.stamina || 0),
     };
   };
 
@@ -103,23 +114,21 @@ export default function CharacterCreate({ session, onBack, onCreated }) {
 
           <label className="create-label">Class</label>
           <div className="create-options">
-            <button type="button" className={`opt-btn ${charClass === 'WARRIOR' ? 'opt-active' : ''}`} onClick={() => setCharClass('WARRIOR')}>
-              WARRIOR
-            </button>
-            <button type="button" className={`opt-btn ${charClass === 'MAGE' ? 'opt-active' : ''}`} onClick={() => setCharClass('MAGE')}>
-              MAGE
-            </button>
+            {Object.keys(CLASS_STATS).map((c) => (
+              <button key={c} type="button" className={`opt-btn ${charClass === c ? 'opt-active' : ''}`} onClick={() => setCharClass(c)}>
+                {c}
+              </button>
+            ))}
           </div>
           <div className="create-desc">{CLASS_STATS[charClass].desc}</div>
 
           <label className="create-label">Race</label>
-          <div className="create-options">
-            <button type="button" className={`opt-btn ${race === 'HUMAN' ? 'opt-active' : ''}`} onClick={() => setRace('HUMAN')}>
-              HUMAN
-            </button>
-            <button type="button" className={`opt-btn ${race === 'GNOME' ? 'opt-active' : ''}`} onClick={() => setRace('GNOME')}>
-              GNOME
-            </button>
+          <div className="create-options" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            {Object.keys(RACE_STATS).map((r) => (
+              <button key={r} type="button" className={`opt-btn ${race === r ? 'opt-active' : ''}`} onClick={() => setRace(r)}>
+                {r}
+              </button>
+            ))}
           </div>
           <div className="create-desc">{RACE_STATS[race].desc}</div>
 
@@ -151,9 +160,10 @@ export default function CharacterCreate({ session, onBack, onCreated }) {
             </div>
           ) : (
             <div className="create-desc" style={{ padding: '8px', color: '#888' }}>
-              No heads available for Gnomes
+              No heads available for {race}
             </div>
           )}
+
 
           <div className="create-preview">
             <div>HP: {preview.hp} | Mana: {preview.mana} | Stamina: {preview.stamina}</div>

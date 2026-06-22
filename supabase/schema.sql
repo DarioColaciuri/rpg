@@ -3,8 +3,8 @@ CREATE TABLE IF NOT EXISTS characters (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   name TEXT UNIQUE NOT NULL,
-  class TEXT NOT NULL CHECK (class IN ('WARRIOR', 'MAGE')),
-  race TEXT NOT NULL CHECK (race IN ('HUMAN', 'GNOME')),
+  class TEXT NOT NULL CHECK (class IN ('WARRIOR','MAGE','HUNTER','PALADIN','ASSASSIN','CLERIC','BARD','DRUID','BANDIT')),
+  race TEXT NOT NULL CHECK (race IN ('HUMAN','ELF','DROW','GNOME','DWARF','ORC')),
   sex TEXT NOT NULL CHECK (sex IN ('male', 'female')),
   hp INTEGER NOT NULL DEFAULT 20,
   max_hp INTEGER NOT NULL DEFAULT 20,
@@ -49,3 +49,22 @@ CREATE INDEX IF NOT EXISTS idx_characters_name ON characters(name);
 ALTER TABLE characters ADD COLUMN IF NOT EXISTS head_variant INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE characters ADD COLUMN IF NOT EXISTS gold INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE characters ADD COLUMN IF NOT EXISTS inventory JSONB DEFAULT '[]'::jsonb;
+
+-- STEP 1 migrations: expand classes and races
+-- If constraint names differ, find them with:
+-- SELECT conname FROM pg_constraint WHERE conrelid = 'characters'::regclass AND contype = 'c';
+DO $$
+DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN SELECT conname FROM pg_constraint
+           WHERE conrelid = 'characters'::regclass AND contype = 'c'
+             AND (conname LIKE '%class%' OR conname LIKE '%race%')
+  LOOP
+    EXECUTE 'ALTER TABLE characters DROP CONSTRAINT IF EXISTS ' || r.conname;
+  END LOOP;
+END $$;
+ALTER TABLE characters ADD CONSTRAINT characters_class_check
+  CHECK (class IN ('WARRIOR','MAGE','HUNTER','PALADIN','ASSASSIN','CLERIC','BARD','DRUID','BANDIT'));
+ALTER TABLE characters ADD CONSTRAINT characters_race_check
+  CHECK (race IN ('HUMAN','ELF','DROW','GNOME','DWARF','ORC'));

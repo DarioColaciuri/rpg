@@ -1,7 +1,11 @@
 import React from 'react';
 
-export default function SpellPanel({ isMage, selectedSpell, onSelectSpell }) {
-  if (!isMage) {
+const SPELLCASTER_CLASSES = ['MAGE', 'DRUID', 'CLERIC', 'PALADIN'];
+
+export default function SpellPanel({ playerClass, selectedSpell, onSelectSpell }) {
+  const isSpellcaster = SPELLCASTER_CLASSES.includes(playerClass);
+
+  if (!isSpellcaster) {
     return (
       <div className="spell-panel">
         <div className="spell-panel-title">Spells</div>

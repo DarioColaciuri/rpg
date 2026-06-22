@@ -1,12 +1,106 @@
 import { MAPS, TILE_SIZE, isPixelWalkable, findGroundY } from './maps.js';
 
 const BASE_STATS = {
-  WARRIOR: { hp: 20, mana: 10, stamina: 20 },
-  MAGE: { hp: 10, mana: 30, stamina: 20 },
+  WARRIOR: { hp: 120, mana: 10, stamina: 20 },
+  HUNTER: { hp: 100, mana: 10, stamina: 25 },
+  PALADIN: { hp: 110, mana: 30, stamina: 20 },
+  ASSASSIN: { hp: 90, mana: 15, stamina: 30 },
+  CLERIC: { hp: 85, mana: 60, stamina: 20 },
+  BARD: { hp: 85, mana: 60, stamina: 22 },
+  MAGE: { hp: 60, mana: 100, stamina: 20 },
+  DRUID: { hp: 80, mana: 60, stamina: 20 },
+  BANDIT: { hp: 95, mana: 15, stamina: 22 },
 };
 const RACE_BONUS = {
-  HUMAN: { hp: 5, mana: 0 },
-  GNOME: { hp: 0, mana: 5 },
+  HUMAN: { hp: 15, mana: 0, stamina: 1 },
+  ELF: { hp: 5, mana: 10, stamina: 2 },
+  DROW: { hp: 10, mana: 5, stamina: 1 },
+  GNOME: { hp: -5, mana: 15, stamina: 3 },
+  DWARF: { hp: 20, mana: -5, stamina: 0 },
+  ORC: { hp: 25, mana: -5, stamina: 0 },
+};
+
+const CLASS_MELEE_DAMAGE = {
+  WARRIOR: 15,
+  HUNTER: 12,
+  PALADIN: 13,
+  ASSASSIN: 12,
+  CLERIC: 8,
+  BARD: 7,
+  MAGE: 5,
+  DRUID: 7,
+  BANDIT: 12,
+};
+
+const RACE_HEIGHT = {
+  tall: ['human', 'elf', 'drow', 'orc'],
+  short: ['gnome', 'dwarf'],
+};
+
+const XP_TABLE = [
+  0,        // nivel 0 (no existe)
+  500,      // nivel 1 → 2
+  750,      // nivel 2 → 3
+  960,      // nivel 3 → 4
+  1450,     // nivel 4 → 5
+  2050,
+  2820,
+  3700,
+  5950,
+  8250,
+  11533,
+  14993,
+  19491,
+  25338,
+  32939,
+  42821,
+  55668,
+  72368,
+  94078,
+  122302,
+  158992,
+  206690,
+  268697,
+  376176,
+  526646,
+  737305,
+  884765,
+  1061719,
+  1274062,
+  1528875,
+  1834650,
+  2201580,
+  2641896,
+  3170275,
+  3804330,
+  4565196,
+  6091279,
+  7871705,
+  10008216,
+  14637325,
+  20830987,
+  31246480,
+  46869720,
+  69554580,
+  104706870,
+  157435305,
+  236527957,
+  336527957,
+  436527957,
+  636527957,
+  0,        // nivel 50 (max)
+];
+
+const CLASS_GROWTH = {
+  WARRIOR: { hp: 8, mana: 0, stamina: 0, damage: 2.0 },
+  HUNTER:   { hp: 7, mana: 0, stamina: 1, damage: 1.5 },
+  PALADIN:  { hp: 7, mana: 1, stamina: 0, damage: 1.5 },
+  ASSASSIN: { hp: 6, mana: 1, stamina: 1, damage: 1.5 },
+  CLERIC:   { hp: 6, mana: 2, stamina: 0, damage: 1.0 },
+  BARD:     { hp: 6, mana: 2, stamina: 0, damage: 1.0 },
+  MAGE:     { hp: 5, mana: 3, stamina: 0, damage: 0.5 },
+  DRUID:    { hp: 6, mana: 2, stamina: 0, damage: 1.0 },
+  BANDIT:   { hp: 6, mana: 1, stamina: 0, damage: 1.5 },
 };
 
 const PLAYER_W = 32;
@@ -21,14 +115,30 @@ const SPELL_MANA_COST = 2;
 const MEDITATE_MANA_REGEN = 5;
 const MEDITATE_INTERVAL = 1000;
 
-const ENEMY_COUNT = 3;
-const ENEMY_SPEED = 60;
-const ENEMY_JUMP = -210;
-const ENEMY_HP = 10;
-const ENEMY_DAMAGE = 1;
+const ENEMY_TYPES = {
+  rat:     { name: 'Rata',       hp: 15,  damageMin: 2,  damageMax: 5,  speed: 40,  aggro: 60,  xp: 18,  gold: 0 },
+  bat:     { name: 'Murcielago', hp: 15,  damageMin: 1,  damageMax: 3,  speed: 80,  aggro: 80,  xp: 18,  gold: 1 },
+  snake:   { name: 'Serpiente',  hp: 22,  damageMin: 3,  damageMax: 6,  speed: 50,  aggro: 90,  xp: 22,  gold: 2 },
+  scorpion:{ name: 'Escorpion',  hp: 30,  damageMin: 6,  damageMax: 10, speed: 55,  aggro: 100, xp: 30,  gold: 3 },
+  wolf:    { name: 'Lobo',       hp: 60,  damageMin: 10, damageMax: 15, speed: 70,  aggro: 120, xp: 72,  gold: 0 },
+  goblin:  { name: 'Goblin',     hp: 200, damageMin: 15, damageMax: 25, speed: 60,  aggro: 130, xp: 160, gold: 0 },
+};
+
+const ENEMY_SPAWNS = {
+  forest: [
+    { type: 'rat', count: 2 },
+    { type: 'bat', count: 2 },
+    { type: 'snake', count: 2 },
+    { type: 'scorpion', count: 1 },
+    { type: 'wolf', count: 1 },
+    { type: 'goblin', count: 1 },
+  ],
+  city: [
+    { type: 'rat', count: 2 },
+  ],
+};
+
 const ENEMY_ATTACK_COOLDOWN = 2000;
-const ENEMY_AGGRO_RANGE = 100;
-const ENEMY_ATTACK_RANGE = 48;
 const ENEMY_TICK = 50;
 const ENEMY_BROADCAST = 50;
 
@@ -74,8 +184,8 @@ export function calcStats(charClass, race) {
     maxHp: base.hp + bonus.hp,
     mana: base.mana + bonus.mana,
     maxMana: base.mana + bonus.mana,
-    stamina: base.stamina,
-    maxStamina: base.stamina,
+    stamina: base.stamina + (bonus.stamina || 0),
+    maxStamina: base.stamina + (bonus.stamina || 0),
   };
 }
 
@@ -183,14 +293,21 @@ export class GameServer {
   }
 
   initEnemies() {
-    for (let i = 0; i < ENEMY_COUNT; i++) {
-      this.spawnEnemy('forest');
+    for (const [mapName, spawns] of Object.entries(ENEMY_SPAWNS)) {
+      for (const spawn of spawns) {
+        for (let i = 0; i < spawn.count; i++) {
+          this.spawnEnemy(mapName, spawn.type);
+        }
+      }
     }
   }
 
-  spawnEnemy(mapName) {
+  spawnEnemy(mapName, type) {
     const map = MAPS[mapName];
     if (!map) return;
+    const enemyDef = ENEMY_TYPES[type];
+    if (!enemyDef) return;
+
     let px, py;
     for (let attempt = 0; attempt < 50; attempt++) {
       const tx = 2 + Math.floor(Math.random() * (map.width - 4));
@@ -210,8 +327,8 @@ export class GameServer {
 
     const id = `enemy_${this._nextEnemyId++}`;
     this.enemies.set(id, {
-      id, map: mapName, px, py,
-      hp: ENEMY_HP, maxHp: ENEMY_HP,
+      id, map: mapName, type, px, py,
+      hp: enemyDef.hp, maxHp: enemyDef.hp,
       direction: Math.random() > 0.5 ? 'right' : 'left',
       velX: 0, velY: 0, grounded: true,
       attackCooldown: 0,
@@ -223,7 +340,7 @@ export class GameServer {
   getEnemiesOnMap(mapName) {
     const result = [];
     for (const [, e] of this.enemies) {
-      if (e.map === mapName) result.push({ id: e.id, px: e.px, py: e.py, hp: e.hp, maxHp: e.maxHp, direction: e.direction });
+      if (e.map === mapName) result.push({ id: e.id, type: e.type, px: e.px, py: e.py, hp: e.hp, maxHp: e.maxHp, direction: e.direction });
     }
     return result;
   }
@@ -236,13 +353,18 @@ export class GameServer {
       }
       if (now - this._lastEnemyBroadcast > ENEMY_BROADCAST) {
         this._lastEnemyBroadcast = now;
-        this.broadcastEnemyState('forest');
+        const mapsWithEnemies = new Set();
+        for (const [, e] of this.enemies) mapsWithEnemies.add(e.map);
+        for (const mapName of mapsWithEnemies) this.broadcastEnemyState(mapName);
       }
     }, ENEMY_TICK);
   }
 
   updateEnemy(enemy, deltaMs) {
     const delta = deltaMs / 1000;
+    const def = ENEMY_TYPES[enemy.type];
+    if (!def) return;
+
     enemy.attackCooldown = Math.max(0, enemy.attackCooldown - deltaMs);
     enemy.wallTimer = Math.max(0, enemy.wallTimer - deltaMs);
 
@@ -253,7 +375,7 @@ export class GameServer {
       const dx = Math.abs(p.px - enemy.px);
       const dy = Math.abs(p.py - enemy.py);
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < ENEMY_AGGRO_RANGE && dist < nearestDist) {
+      if (dist < def.aggro && dist < nearestDist) {
         nearestDist = dist;
         nearestPlayer = p;
       }
@@ -263,15 +385,22 @@ export class GameServer {
       const dx = nearestPlayer.px - enemy.px;
       enemy.direction = dx > 0 ? 'right' : 'left';
 
-      if (nearestDist < ENEMY_ATTACK_RANGE && enemy.attackCooldown <= 0) {
-        nearestPlayer.hp = Math.max(0, nearestPlayer.hp - ENEMY_DAMAGE);
+      const eTx = Math.floor(enemy.px / TILE_SIZE);
+      const eTy = Math.floor(enemy.py / TILE_SIZE);
+      const pTx = Math.floor(nearestPlayer.px / TILE_SIZE);
+      const pTy = Math.floor(nearestPlayer.py / TILE_SIZE);
+      const inAttackRange = Math.abs(eTx - pTx) <= 1 && Math.abs(eTy - pTy) <= 1;
+
+      if (inAttackRange && enemy.attackCooldown <= 0) {
+        const dmg = def.damageMin + Math.floor(Math.random() * (def.damageMax - def.damageMin + 1));
+        nearestPlayer.hp = Math.max(0, nearestPlayer.hp - dmg);
         enemy.attackCooldown = ENEMY_ATTACK_COOLDOWN;
         const targetWs = this.getWsByPlayerId(nearestPlayer.id);
         if (targetWs) this.sendTo(targetWs, { type: 'stats_update', ...this.getStats(nearestPlayer) });
         this.broadcastToMap(enemy.map, {
           type: 'enemy_attack',
           enemyId: enemy.id, targetId: nearestPlayer.id,
-          damage: ENEMY_DAMAGE, targetHp: nearestPlayer.hp,
+          damage: dmg, targetHp: nearestPlayer.hp,
         });
         if (nearestPlayer.hp <= 0) {
           nearestPlayer.dead = true;
@@ -280,7 +409,7 @@ export class GameServer {
           });
         }
       } else {
-        const speed = enemy.direction === 'right' ? ENEMY_SPEED : -ENEMY_SPEED;
+        const speed = enemy.direction === 'right' ? def.speed : -def.speed;
         enemy.velX = speed;
       }
     } else {
@@ -288,9 +417,9 @@ export class GameServer {
       if (enemy.walkTimer <= 0) {
         enemy.walkTimer = 1500 + Math.random() * 3000;
         enemy.direction = Math.random() > 0.5 ? 'right' : 'left';
-        if (enemy.grounded && Math.random() > 0.5) enemy.velY = ENEMY_JUMP;
+        if (enemy.grounded && Math.random() > 0.5) enemy.velY = -210;
       }
-      const speed = enemy.direction === 'right' ? ENEMY_SPEED : -ENEMY_SPEED;
+      const speed = enemy.direction === 'right' ? def.speed : -def.speed;
       enemy.velX = speed;
     }
 
@@ -363,13 +492,21 @@ export class GameServer {
     }
   }
 
-  enemyDied(enemy) {
+  enemyDied(enemy, killerId) {
+    const def = ENEMY_TYPES[enemy.type];
     this.broadcastToMap(enemy.map, { type: 'enemy_died', id: enemy.id });
-    const gid = `${enemy.map}_${this._nextGroundItemId++}`;
-    this.groundItems.set(gid, { id: gid, map: enemy.map, px: enemy.px, py: enemy.py, itemType: 'gold_pile', amount: 1 });
-    this.broadcastToMap(enemy.map, { type: 'ground_item_added', id: gid, map: enemy.map, px: enemy.px, py: enemy.py, itemType: 'gold_pile', amount: 1 });
+    if (def && def.gold > 0) {
+      const gid = `${enemy.map}_${this._nextGroundItemId++}`;
+      this.groundItems.set(gid, { id: gid, map: enemy.map, px: enemy.px, py: enemy.py, itemType: 'gold_pile', amount: def.gold });
+      this.broadcastToMap(enemy.map, { type: 'ground_item_added', id: gid, map: enemy.map, px: enemy.px, py: enemy.py, itemType: 'gold_pile', amount: def.gold });
+    }
+    if (killerId) {
+      const killer = this.players.get(killerId);
+      if (killer && def) this.addXp(killer, def.xp);
+    }
+    const enemyType = enemy.type;
     this.enemies.delete(enemy.id);
-    this.spawnEnemy(enemy.map);
+    this.spawnEnemy(enemy.map, enemyType);
     this.broadcastEnemyState(enemy.map);
   }
 
@@ -417,6 +554,7 @@ export class GameServer {
       gold: player.gold ?? 0,
       level: player.level,
       xp: player.xp,
+      xpNeeded: XP_TABLE[player.level] || 0,
       headVariant: player.headVariant ?? 1,
       inventory: player.inventory || [],
     };
@@ -849,22 +987,43 @@ export class GameServer {
     const attacker = this.players.get(playerId);
     if (!attacker || attacker.dead) return;
 
-    const map = MAPS[attacker.map];
-    if (!map || map.safe) {
-      this.sendTo(ws, { type: 'error', msg: 'No puedes atacar en zonas seguras' });
-      return;
-    }
-
     if (attacker.stamina < 1) {
       this.sendTo(ws, { type: 'error', msg: 'No tienes suficiente stamina' });
       return;
     }
 
-    const damage = attacker.class === 'WARRIOR' ? 4 : 1;
+    const growth = CLASS_GROWTH[attacker.class];
+    const levelDmg = growth ? Math.floor((attacker.level - 1) * growth.damage) : 0;
+    const damage = (CLASS_MELEE_DAMAGE[attacker.class] || 1) + levelDmg;
 
     const aTx = Math.floor(attacker.px / TILE_SIZE);
     const aTy = Math.floor(attacker.py / TILE_SIZE);
     const facingRight = attacker.direction === 'right';
+
+    for (const [, e] of this.enemies) {
+      if (e.map !== attacker.map) continue;
+      const eTx = Math.floor(e.px / TILE_SIZE);
+      const eTy = Math.floor(e.py / TILE_SIZE);
+      const dx = Math.abs(eTx - aTx);
+      const dy = Math.abs(eTy - aTy);
+      const inFront = facingRight ? (eTx > aTx) : (eTx < aTx);
+      if (dx <= 1 && dy <= 1 && inFront) {
+        attacker.stamina -= 1;
+        e.hp = Math.max(0, e.hp - damage);
+        this.sendTo(ws, { type: 'stats_update', ...this.getStats(attacker) });
+        this.broadcastToMap(attacker.map, { type: 'enemy_hit', enemyId: e.id, hp: e.hp, damage });
+        if (e.hp <= 0) {
+          setTimeout(() => this.enemyDied(e, attacker.id), 50);
+        }
+        return;
+      }
+    }
+
+    const map = MAPS[attacker.map];
+    if (map && map.safe) {
+      this.sendTo(ws, { type: 'error', msg: 'No puedes atacar en zonas seguras' });
+      return;
+    }
 
     let target = null;
     for (const [, p] of this.players) {
@@ -882,25 +1041,6 @@ export class GameServer {
     }
 
     if (!target) {
-      for (const [, e] of this.enemies) {
-        if (e.map !== attacker.map) continue;
-        const eTx = Math.floor(e.px / TILE_SIZE);
-        const eTy = Math.floor(e.py / TILE_SIZE);
-        const dx = Math.abs(eTx - aTx);
-        const dy = Math.abs(eTy - aTy);
-        const inFront = facingRight ? (eTx > aTx) : (eTx < aTx);
-        if (dx <= 1 && dy <= 1 && inFront) {
-          attacker.stamina -= 1;
-          e.hp = Math.max(0, e.hp - damage);
-          this.sendTo(ws, { type: 'stats_update', ...this.getStats(attacker) });
-          if (e.hp <= 0) {
-            this.enemyDied(e);
-          } else {
-            this.broadcastToMap(attacker.map, { type: 'enemy_hit', enemyId: e.id, hp: e.hp });
-          }
-          return;
-        }
-      }
       this.sendTo(ws, { type: 'attack_miss' });
       return;
     }
@@ -927,6 +1067,7 @@ export class GameServer {
 
     if (target.hp <= 0) {
       target.dead = true;
+      this.addXp(attacker, 50);
       this.broadcastToMap(target.map, {
         type: 'player_died',
         id: target.id,
@@ -962,14 +1103,8 @@ export class GameServer {
     const caster = this.players.get(playerId);
     if (!caster || caster.dead) return;
 
-    if (caster.class !== 'MAGE') {
-      this.sendTo(ws, { type: 'error', msg: 'Solo los magos pueden lanzar hechizos' });
-      return;
-    }
-
-    const map = MAPS[caster.map];
-    if (!map || map.safe) {
-      this.sendTo(ws, { type: 'error', msg: 'No puedes atacar en zonas seguras' });
+    if (!['MAGE','DRUID','CLERIC','PALADIN'].includes(caster.class)) {
+      this.sendTo(ws, { type: 'error', msg: 'Tu clase no puede lanzar hechizos' });
       return;
     }
 
@@ -997,6 +1132,14 @@ export class GameServer {
     if (enemyTarget && enemyTarget.map !== caster.map) {
       this.sendTo(ws, { type: 'error', msg: 'El objetivo no esta en este mapa' });
       return;
+    }
+
+    if (target) {
+      const map = MAPS[caster.map];
+      if (map && map.safe) {
+        this.sendTo(ws, { type: 'error', msg: 'No puedes atacar en zonas seguras' });
+        return;
+      }
     }
 
     const targetPx = target ? target.px : enemyTarget.px;
@@ -1027,15 +1170,49 @@ export class GameServer {
       if (targetWs) this.sendTo(targetWs, { type: 'stats_update', ...this.getStats(target) });
       if (target.hp <= 0) {
         target.dead = true;
+        this.addXp(caster, 50);
         this.broadcastToMap(target.map, { type: 'player_died', id: target.id, px: target.px, py: target.py });
       }
     } else if (enemyTarget) {
       enemyTarget.hp = Math.max(0, enemyTarget.hp - 3);
       this.sendTo(ws, { type: 'stats_update', ...this.getStats(caster) });
+      this.broadcastToMap(caster.map, { type: 'enemy_hit', enemyId: enemyTarget.id, hp: enemyTarget.hp, damage: 3 });
       if (enemyTarget.hp <= 0) {
-        this.enemyDied(enemyTarget);
+        setTimeout(() => this.enemyDied(enemyTarget, caster.id), 50);
+      }
+    }
+  }
+
+  addXp(player, amount) {
+    if (player.level >= 50) return;
+    if (amount <= 0) return;
+    player.xp = (player.xp || 0) + amount;
+
+    while (player.level < 50) {
+      const needed = XP_TABLE[player.level];
+      if (!needed) break;
+      if (player.xp >= needed) {
+        player.xp -= needed;
+        player.level += 1;
+
+        const growth = CLASS_GROWTH[player.class];
+        if (growth) {
+          player.maxHp += growth.hp;
+          player.hp = player.maxHp;
+          player.maxMana += growth.mana;
+          player.mana = player.maxMana;
+          player.maxStamina += growth.stamina;
+          player.stamina = player.maxStamina;
+        }
+        player._skillPoints = (player._skillPoints || 0) + 5;
+
+        const ws = this.getWsByPlayerId(player.id);
+        if (ws) {
+          this.sendTo(ws, { type: 'level_up', level: player.level, stats: this.getStats(player) });
+        }
+        this.broadcastToMap(player.map, { type: 'player_level_up', id: player.id, level: player.level });
       } else {
-        this.broadcastToMap(caster.map, { type: 'enemy_hit', enemyId: enemyTarget.id, hp: enemyTarget.hp });
+        break;
       }
     }
   }

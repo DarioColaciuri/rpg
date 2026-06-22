@@ -16,7 +16,7 @@ export default function StatsBars({ stats }) {
       <div className="stats-header">
         <span className="stats-name">{stats.name || 'Unknown'}</span>
         <span className="stats-level">Lv.{stats.level ?? 1}</span>
-        <span className="stats-xp">XP: {stats.xp ?? 0}</span>
+        <span className="stats-xp">XP: {stats.xp ?? 0}/{stats.xpNeeded ?? 0}</span>
         <span className="stats-gold">
           <span className="stats-gold-icon" />
           {stats.gold ?? 0}

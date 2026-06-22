@@ -33,9 +33,16 @@ function buildCharUpdate(player) {
     x: Math.round(player.px),
     y: Math.round(player.py),
     hp: player.hp,
+    max_hp: player.maxHp,
+    mana: player.mana,
+    max_mana: player.maxMana,
+    stamina: player.stamina,
+    max_stamina: player.maxStamina,
     food: player.food,
     drink: player.drink,
     gold: player.gold ?? 0,
+    level: player.level ?? 1,
+    xp: player.xp ?? 0,
     inventory: player.inventory || [],
   };
 }
@@ -57,12 +64,17 @@ const httpServer = createServer((req, res) => {
 
 const wss = new WebSocketServer({ server: httpServer });
 
+httpServer.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use. Run: taskkill /F /IM node.exe and retry.`);
+    process.exit(1);
+  }
+});
+
 wss.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`Port ${PORT} in use, retrying in 2s...`);
-    setTimeout(() => httpServer.listen(PORT, '0.0.0.0', () => {
-      console.log(`RPG Server running on port ${PORT}`);
-    }), 2000);
+    console.error(`Port ${PORT} is already in use. Run: taskkill /F /IM node.exe and retry.`);
+    process.exit(1);
   }
 });
 

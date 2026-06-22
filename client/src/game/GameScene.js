@@ -15,6 +15,15 @@ const ITEM_COLORS = {
   gold_pile: 0xffcc00,
 };
 
+const ENEMY_VISUALS = {
+  rat:      { color: 0x888888, stroke: 0xaaaaaa, shape: 'rect', w: 16, h: 14 },
+  bat:      { color: 0x664488, stroke: 0x8866aa, shape: 'circle', radius: 10, h: 20 },
+  snake:    { color: 0x44aa44, stroke: 0x66cc66, shape: 'rect', w: 32, h: 14 },
+  scorpion: { color: 0xcc8844, stroke: 0xeeaa66, shape: 'rect', w: 24, h: 18 },
+  wolf:     { color: 0x886644, stroke: 0xaa8866, shape: 'rect', w: 32, h: 24 },
+  goblin:   { color: 0x44aa22, stroke: 0x66cc44, shape: 'rect', w: 22, h: 36 },
+};
+
 export default class GameScene extends Phaser.Scene {
   constructor() {
     super({ key: 'GameScene' });
@@ -501,6 +510,12 @@ export default class GameScene extends Phaser.Scene {
     this.currentLayer.setCollisionByProperty({ type: 'solid' });
     this.currentLayer.setCollisionByProperty({ type: 'platform' });
 
+    const forestTs = this.currentMapData.getTileset('tiles_forest');
+    if (forestTs) {
+      this.currentLayer.setCollision([1]);
+      this.currentLayer.setCollision([2]);
+    }
+
     this.physics.world.setBounds(0, 0,
       this.currentMapData.width * TILE_SIZE,
       this.currentMapData.height * TILE_SIZE);
@@ -512,6 +527,16 @@ export default class GameScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, mapPixelW, mapPixelH);
 
     this.solidGroup = this.physics.add.staticGroup();
+
+    if (mapName === 'forest' || mapName === 'city') {
+      const mapPixelW = this.currentMapData.width * TILE_SIZE;
+      const mapPixelH = this.currentMapData.height * TILE_SIZE;
+      const groundH = 4 * TILE_SIZE;
+      const groundY = mapPixelH - groundH / 2;
+      const groundBody = this.add.rectangle(mapPixelW / 2, groundY, mapPixelW, groundH);
+      groundBody.visible = false;
+      this.solidGroup.add(groundBody);
+    }
     this.boundaryGroup = this.physics.add.staticGroup();
     if (this.thinGroup) this.thinGroup.destroy(true, true);
     this.thinGroup = this.physics.add.staticGroup();
@@ -562,6 +587,9 @@ export default class GameScene extends Phaser.Scene {
         if (p.body.velocity.y < 0) return false;
         return true;
       });
+    }
+    if (this.solidGroup) {
+      this.physics.add.collider(player, this.solidGroup);
     }
     this.physics.add.collider(player, this.enemyBodyGroup);
 
@@ -657,31 +685,40 @@ export default class GameScene extends Phaser.Scene {
   }
 
   renderEnemy(enemy) {
+    const type = enemy.type || 'rat';
+    const visual = ENEMY_VISUALS[type] || ENEMY_VISUALS['rat'];
     const gfx = this.add.graphics();
-    gfx.fillStyle(0x8844cc, 1);
-    gfx.fillRect(-16, -16, 32, 32);
-    gfx.lineStyle(1, 0xaa66ff, 0.6);
-    gfx.strokeRect(-16, -16, 32, 32);
+    gfx.fillStyle(visual.color, 1);
+    if (visual.shape === 'circle') {
+      gfx.fillCircle(0, 0, visual.radius);
+      gfx.lineStyle(1, visual.stroke, 0.6);
+      gfx.strokeCircle(0, 0, visual.radius);
+    } else {
+      gfx.fillRect(-visual.w / 2, -visual.h / 2, visual.w, visual.h);
+      gfx.lineStyle(1, visual.stroke, 0.6);
+      gfx.strokeRect(-visual.w / 2, -visual.h / 2, visual.w, visual.h);
+    }
     gfx.setPosition(enemy.px, enemy.py);
     gfx.setDepth(5);
 
+    const barW = visual.w || 32;
     const hpBg = this.add.graphics().setDepth(20);
     hpBg.fillStyle(0x333333, 1);
-    hpBg.fillRect(-16, -20, 32, 3);
+    hpBg.fillRect(-barW / 2, -visual.h / 2 - 4, barW, 3);
     hpBg.setPosition(enemy.px, enemy.py);
 
     const hpBar = this.add.graphics().setDepth(20);
     const ratio = (enemy.hp ?? 10) / (enemy.maxHp ?? 10);
     const hpColor = ratio > 0.5 ? 0x44cc44 : ratio > 0.25 ? 0xcccc44 : 0xcc4444;
     hpBar.fillStyle(hpColor, 1);
-    hpBar.fillRect(-16, -20, 32 * Math.max(0, ratio), 3);
+    hpBar.fillRect(-barW / 2, -visual.h / 2 - 4, barW * Math.max(0, ratio), 3);
     hpBar.setPosition(enemy.px, enemy.py);
 
     const body = this.add.rectangle(enemy.px, enemy.py, 48, 48);
     this.enemyBodyGroup.add(body);
     body.visible = false;
 
-    this.enemySprites.set(enemy.id, { gfx, hpBg, hpBar, body, data: enemy, _targetX: enemy.px, _targetY: enemy.py });
+    this.enemySprites.set(enemy.id, { gfx, hpBg, hpBar, body, data: { ...enemy, type }, _targetX: enemy.px, _targetY: enemy.py });
   }
 
   clearEnemies() {
@@ -890,14 +927,17 @@ export default class GameScene extends Phaser.Scene {
         for (const e of msg.enemies) {
           const entry = this.enemySprites.get(e.id);
           if (entry) {
-            entry.data = e;
+            entry.data = { ...e, type: entry.data.type };
             entry._targetX = e.px;
             entry._targetY = e.py;
+            const visual = ENEMY_VISUALS[entry.data.type] || ENEMY_VISUALS['rat'];
+            const barW = visual.w || visual.radius * 2 || 32;
+            const barH = (visual.shape === 'circle' ? visual.radius : visual.h / 2);
             entry.hpBar.clear();
             const ratio = (e.hp ?? 10) / (e.maxHp ?? 10);
             const hpColor = ratio > 0.5 ? 0x44cc44 : ratio > 0.25 ? 0xcccc44 : 0xcc4444;
             entry.hpBar.fillStyle(hpColor, 1);
-            entry.hpBar.fillRect(-16, -20, 32 * Math.max(0, ratio), 3);
+            entry.hpBar.fillRect(-barW / 2, -barH - 4, barW * Math.max(0, ratio), 3);
             entry.hpBar.setPosition(entry.gfx.x, entry.gfx.y);
           } else {
             this.renderEnemy(e);
@@ -921,6 +961,18 @@ export default class GameScene extends Phaser.Scene {
         const entry = this.enemySprites.get(msg.enemyId);
         if (entry && entry.data) {
           entry.data.hp = msg.hp;
+          const visual = ENEMY_VISUALS[entry.data.type] || ENEMY_VISUALS['rat'];
+          const barW = visual.w || visual.radius * 2 || 32;
+          const barH = (visual.shape === 'circle' ? visual.radius : visual.h / 2);
+          const ratio = (msg.hp ?? 10) / (entry.data.maxHp ?? 10);
+          entry.hpBar.clear();
+          const hpColor = ratio > 0.5 ? 0x44cc44 : ratio > 0.25 ? 0xcccc44 : 0xcc4444;
+          entry.hpBar.fillStyle(hpColor, 1);
+          entry.hpBar.fillRect(-barW / 2, -barH - 4, barW * Math.max(0, ratio), 3);
+          entry.hpBar.setPosition(entry.gfx.x, entry.gfx.y);
+          if (msg.damage) {
+            this.showFloatingText(entry.data.px, entry.data.py - 20, `-${msg.damage}`, '#ff6644');
+          }
         }
         this.playEnemyHitSound();
         break;
@@ -972,6 +1024,21 @@ export default class GameScene extends Phaser.Scene {
       }
       case 'stats_update': {
         this._localStamina = msg.stamina ?? 0;
+        break;
+      }
+      case 'level_up': {
+        if (this.myId && this.playerSprites.has(this.myId)) {
+          const s = this.playerSprites.get(this.myId);
+          this.showFloatingText(s.x, s.y - 50, `LEVEL UP! Lv.${msg.level}`, '#ffcc44');
+        }
+        if (this.onError) this.onError(`Subiste a nivel ${msg.level}!`);
+        break;
+      }
+      case 'player_level_up': {
+        if (this.playerSprites.has(msg.id) && msg.id !== this.myId) {
+          const s = this.playerSprites.get(msg.id);
+          this.showFloatingText(s.x, s.y - 50, `Lv.${msg.level}!`, '#ffcc44');
+        }
         break;
       }
       case 'ground_item_added': {

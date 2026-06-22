@@ -28,7 +28,7 @@ export default function GameUI({
       </div>
       <div className="game-ui-bottom-right">
         <SpellPanel
-          isMage={character?.class === 'MAGE'}
+          playerClass={character?.class}
           selectedSpell={selectedSpell}
           onSelectSpell={onSelectSpell}
         />
