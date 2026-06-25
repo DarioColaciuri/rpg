@@ -44,6 +44,8 @@ function buildCharUpdate(player) {
     level: player.level ?? 1,
     xp: player.xp ?? 0,
     inventory: player.inventory || [],
+    skills: player.skills || null,
+    skill_points: player.skillPoints ?? 0,
   };
 }
 
@@ -199,7 +201,7 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'cast_spell') {
-      gameServer.handleCastSpell(ws, msg.targetId);
+      gameServer.handleCastSpell(ws, msg.targetId, msg.spellKey);
       return;
     }
 
@@ -264,6 +266,16 @@ wss.on('connection', (ws) => {
           const player = gameServer.players.get(pId);
           if (player) await saveChar(supabase, player);
         }
+      }
+      return;
+    }
+
+    if (msg.type === 'assign_skill') {
+      gameServer.handleAssignSkill(ws, msg.skillName);
+      const pId = gameServer.wsToPlayer.get(ws);
+      if (pId) {
+        const player = gameServer.players.get(pId);
+        if (player) await saveChar(supabase, player);
       }
       return;
     }

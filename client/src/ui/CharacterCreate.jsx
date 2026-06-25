@@ -21,6 +21,15 @@ const RACE_STATS = {
   ORC: { hp: 25, mana: -5, stamina: 0, desc: 'Most HP, less mana' },
 };
 
+const SKILL_NAMES = {
+  combat_arms: 'Combate con Armas',
+  magic: 'Magia',
+  shield_defense: 'Defensa con Escudos',
+  dodge: 'Evasion',
+  meditation: 'Meditar',
+};
+const SKILL_MAX = 100;
+
 export default function CharacterCreate({ session, onBack, onCreated }) {
   const [name, setName] = useState('');
   const [sex, setSex] = useState('male');
@@ -29,6 +38,14 @@ export default function CharacterCreate({ session, onBack, onCreated }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [headVariant, setHeadVariant] = useState(1);
+  const [skills, setSkills] = useState({
+    combat_arms: 0,
+    magic: 0,
+    shield_defense: 0,
+    dodge: 0,
+    meditation: 0,
+  });
+  const [skillPoints, setSkillPoints] = useState(10);
 
   const calcStats = () => {
     const base = CLASS_STATS[charClass];
@@ -76,6 +93,8 @@ export default function CharacterCreate({ session, onBack, onCreated }) {
       x: 10,
       y: 10,
       head_variant: headVariant,
+      skills,
+      skill_points: skillPoints,
     });
 
     if (insertError) {
@@ -164,6 +183,42 @@ export default function CharacterCreate({ session, onBack, onCreated }) {
             </div>
           )}
 
+
+          <label className="create-label">Skills</label>
+          <div className="create-desc" style={{ padding: '4px 0', color: '#ffcc00', fontWeight: 'bold' }}>
+            Skill Points: {skillPoints}
+          </div>
+          {Object.entries(SKILL_NAMES).map(([key, name]) => (
+            <div key={key} className="create-skill-row" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '6px 8px', margin: '2px 0', background: '#222', borderRadius: '6px'
+            }}>
+              <span style={{ fontSize: '13px', minWidth: '130px' }}>{name}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button type="button"
+                  className="opt-btn"
+                  style={{ width: '28px', height: '28px', padding: '0', fontSize: '14px', lineHeight: '28px' }}
+                  disabled={skills[key] <= 0}
+                  onClick={() => {
+                    setSkills(s => ({ ...s, [key]: s[key] - 1 }));
+                    setSkillPoints(p => p + 1);
+                  }}
+                >-</button>
+                <span style={{ fontWeight: 'bold', width: '36px', textAlign: 'center', fontSize: '14px' }}>
+                  {skills[key]}/{SKILL_MAX}
+                </span>
+                <button type="button"
+                  className="opt-btn"
+                  style={{ width: '28px', height: '28px', padding: '0', fontSize: '14px', lineHeight: '28px' }}
+                  disabled={skills[key] >= SKILL_MAX || skillPoints <= 0}
+                  onClick={() => {
+                    setSkills(s => ({ ...s, [key]: s[key] + 1 }));
+                    setSkillPoints(p => p - 1);
+                  }}
+                >+</button>
+              </div>
+            </div>
+          ))}
 
           <div className="create-preview">
             <div>HP: {preview.hp} | Mana: {preview.mana} | Stamina: {preview.stamina}</div>

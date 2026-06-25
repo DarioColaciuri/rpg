@@ -3,6 +3,7 @@ import StatsBars from './StatsBars.jsx';
 import ChatBox from './ChatBox.jsx';
 import SpellPanel from './SpellPanel.jsx';
 import InventoryPanel from './InventoryPanel.jsx';
+import SkillsPanel from './SkillsPanel.jsx';
 
 export default function GameUI({
   stats,
@@ -16,6 +17,7 @@ export default function GameUI({
   selectedSlot,
   onSelectSlot,
   onUseSlot,
+  onAssignSkill,
 }) {
   return (
     <div className="game-ui-overlay">
@@ -41,6 +43,11 @@ export default function GameUI({
           onUseSlot={onUseSlot}
         />
       </div>
+      <SkillsPanel
+        skills={stats?.skills}
+        skillPoints={stats?.skillPoints}
+        onAssignSkill={onAssignSkill}
+      />
     </div>
   );
 }

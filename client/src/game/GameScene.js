@@ -187,7 +187,7 @@ export default class GameScene extends Phaser.Scene {
         return;
       }
 
-      gameSocket.send('cast_spell', { targetId });
+      gameSocket.send('cast_spell', { targetId, spellKey: gameSocket.selectedSpell });
       gameSocket.selectedSpell = null;
     });
   }

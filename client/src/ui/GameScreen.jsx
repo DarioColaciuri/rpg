@@ -143,6 +143,10 @@ export default function GameScreen({ character, session, onLeave }) {
     setIsDead(false);
   };
 
+  const handleAssignSkill = (skillName) => {
+    gameSocket.send('assign_skill', { skillName });
+  };
+
   const handleDropConfirm = (quantity) => {
     if (dropDialog) {
       gameSocket.send('drop_item', { slot: dropDialog.slot, quantity });
@@ -166,6 +170,7 @@ export default function GameScreen({ character, session, onLeave }) {
         selectedSlot={selectedSlot}
         onSelectSlot={handleSelectSlot}
         onUseSlot={handleUseSlot}
+        onAssignSkill={handleAssignSkill}
       />
       {shopOpen && (
         <ShopPanel

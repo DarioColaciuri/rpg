@@ -103,6 +103,20 @@ const CLASS_GROWTH = {
   BANDIT:   { hp: 6, mana: 1, stamina: 0, damage: 1.5 },
 };
 
+const SKILL_DEFS = {
+  combat_arms: { name: 'Combate con Armas', max: 100, desc: '+1% melee damage cada 10 pts' },
+  magic: { name: 'Magia', max: 100, desc: 'Desbloquea hechizos' },
+  shield_defense: { name: 'Defensa con Escudos', max: 100, desc: '-1% damage cada 10 pts' },
+  dodge: { name: 'Evasion', max: 100, desc: '+1% evasion cada 10 pts' },
+  meditation: { name: 'Meditar', max: 100, desc: '+1 mana/sec extra cada 25 pts' },
+};
+
+const SPELL_SKILL_REQUIREMENTS = {
+  hechizo_1: { magic: 0 },
+  curar: { magic: 15 },
+  tormenta: { magic: 35 },
+};
+
 const PLAYER_W = 32;
 const PLAYER_H = 64;
 const CROUCH_BODY_H = 45;
@@ -557,6 +571,8 @@ export class GameServer {
       xpNeeded: XP_TABLE[player.level] || 0,
       headVariant: player.headVariant ?? 1,
       inventory: player.inventory || [],
+      skills: player.skills,
+      skillPoints: player.skillPoints ?? 0,
     };
   }
 
@@ -621,6 +637,14 @@ export class GameServer {
       selectedSpell: null,
       headVariant: character.head_variant ?? 1,
       inventory: inventory,
+      skills: character.skills || {
+        combat_arms: 0,
+        magic: 0,
+        shield_defense: 0,
+        dodge: 0,
+        meditation: 0,
+      },
+      skillPoints: character.skill_points ?? 0,
     };
 
     this.players.set(player.id, player);
@@ -994,7 +1018,8 @@ export class GameServer {
 
     const growth = CLASS_GROWTH[attacker.class];
     const levelDmg = growth ? Math.floor((attacker.level - 1) * growth.damage) : 0;
-    const damage = (CLASS_MELEE_DAMAGE[attacker.class] || 1) + levelDmg;
+    const skillDmg = Math.floor(((attacker.skills?.combat_arms || 0)) / 10);
+    const damage = (CLASS_MELEE_DAMAGE[attacker.class] || 1) + levelDmg + skillDmg;
 
     const aTx = Math.floor(attacker.px / TILE_SIZE);
     const aTy = Math.floor(attacker.py / TILE_SIZE);
@@ -1097,7 +1122,7 @@ export class GameServer {
     return null;
   }
 
-  handleCastSpell(ws, targetPlayerId) {
+  handleCastSpell(ws, targetPlayerId, spellKey = 'hechizo_1') {
     const playerId = this.wsToPlayer.get(ws);
     if (!playerId) return;
     const caster = this.players.get(playerId);
@@ -1106,6 +1131,15 @@ export class GameServer {
     if (!['MAGE','DRUID','CLERIC','PALADIN'].includes(caster.class)) {
       this.sendTo(ws, { type: 'error', msg: 'Tu clase no puede lanzar hechizos' });
       return;
+    }
+
+    if (spellKey && SPELL_SKILL_REQUIREMENTS[spellKey]) {
+      const magicReq = SPELL_SKILL_REQUIREMENTS[spellKey].magic || 0;
+      const playerMagic = caster.skills?.magic || 0;
+      if (playerMagic < magicReq) {
+        this.sendTo(ws, { type: 'error', msg: 'Necesitas mas skill de Magia' });
+        return;
+      }
     }
 
     if ((caster.mana || 0) < SPELL_MANA_COST) {
@@ -1232,5 +1266,36 @@ export class GameServer {
       name: player.name,
       text: text.trim(),
     }, null);
+  }
+
+  handleAssignSkill(ws, skillName) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const player = this.players.get(playerId);
+    if (!player || player.dead) return;
+
+    if (!SKILL_DEFS[skillName]) {
+      this.sendTo(ws, { type: 'error', msg: 'Habilidad invalida' });
+      return;
+    }
+
+    if ((player.skillPoints ?? 0) <= 0) {
+      this.sendTo(ws, { type: 'error', msg: 'No tienes puntos de habilidad' });
+      return;
+    }
+
+    player.skills = player.skills || {
+      combat_arms: 0, magic: 0, shield_defense: 0, dodge: 0, meditation: 0,
+    };
+
+    if ((player.skills[skillName] || 0) >= SKILL_DEFS[skillName].max) {
+      this.sendTo(ws, { type: 'error', msg: 'Habilidad al maximo' });
+      return;
+    }
+
+    player.skills[skillName] = (player.skills[skillName] || 0) + 1;
+    player.skillPoints -= 1;
+
+    this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
   }
 }
