@@ -492,6 +492,18 @@ body {
   border-color: #8844ff;
   color: #fff;
 }
+.spell-heal-btn {
+  border-color: #44aa44 !important;
+}
+.spell-heal-btn.spell-active {
+  background: #224422;
+  border-color: #44ff44 !important;
+}
+.spell-mana-cost {
+  font-size: 10px;
+  color: #888;
+  margin-left: 2px;
+}
 
 .spell-info {
   font-size: 11px;

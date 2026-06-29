@@ -117,6 +117,12 @@ const SPELL_SKILL_REQUIREMENTS = {
   tormenta: { magic: 35 },
 };
 
+const SPELL_DEFS = {
+  hechizo_1: { name: 'Proyectil', mana: 5, damage: 12, range: 12, type: 'damage', classes: ['MAGE','DRUID'], magicReq: 0 },
+  curar:     { name: 'Curar',     mana: 8, heal: 25,   range: 8,  type: 'heal',   classes: ['CLERIC','DRUID','PALADIN'], magicReq: 15 },
+  tormenta:  { name: 'Tormenta',  mana: 15, damage: 8, range: 10, type: 'aoe',    classes: ['MAGE','DRUID'], magicReq: 35, aoeRadius: 3 },
+};
+
 const PLAYER_W = 32;
 const PLAYER_H = 64;
 const CROUCH_BODY_H = 45;
@@ -136,6 +142,7 @@ const ENEMY_TYPES = {
   scorpion:{ name: 'Escorpion',  hp: 30,  damageMin: 6,  damageMax: 10, speed: 55,  aggro: 100, xp: 30,  gold: 3 },
   wolf:    { name: 'Lobo',       hp: 60,  damageMin: 10, damageMax: 15, speed: 70,  aggro: 120, xp: 72,  gold: 0 },
   goblin:  { name: 'Goblin',     hp: 200, damageMin: 15, damageMax: 25, speed: 60,  aggro: 130, xp: 160, gold: 0 },
+  dummy:   { name: 'Dummy',      hp: 99999, damageMin: 0, damageMax: 0, speed: 0, aggro: 0, xp: 5000, gold: 0, xpPerHit: 2500 },
 };
 
 const ENEMY_SPAWNS = {
@@ -149,6 +156,7 @@ const ENEMY_SPAWNS = {
   ],
   city: [
     { type: 'rat', count: 2 },
+    { type: 'dummy', count: 1 },
   ],
 };
 
@@ -169,8 +177,8 @@ const ITEM_DEFS = {
 };
 
 const MAX_INVENTORY_SLOTS = 16;
-const STAT_DRAIN_INTERVAL = 10000;
-const STAT_DRAIN_AMOUNT = 10;
+const STAT_DRAIN_INTERVAL = 60000;
+const STAT_DRAIN_AMOUNT = 5;
 const PICKUP_RANGE = 48;
 
 const DEFAULT_GROUND_ITEMS = {
@@ -366,6 +374,7 @@ export class GameServer {
       attackCooldown: 0,
       walkTimer: Math.random() * 2000,
       wallTimer: 0,
+      xpGiven: 0,
     });
   }
 
@@ -396,6 +405,8 @@ export class GameServer {
     const delta = deltaMs / 1000;
     const def = ENEMY_TYPES[enemy.type];
     if (!def) return;
+
+    if (enemy.type === 'dummy') return;
 
     enemy.attackCooldown = Math.max(0, enemy.attackCooldown - deltaMs);
     enemy.wallTimer = Math.max(0, enemy.wallTimer - deltaMs);
@@ -535,7 +546,10 @@ export class GameServer {
     }
     if (killerId) {
       const killer = this.players.get(killerId);
-      if (killer && def) this.addXp(killer, def.xp);
+      if (killer && def) {
+        const remainingXp = def.xpPerHit ? 0 : Math.max(0, def.xp - (enemy.xpGiven || 0));
+        if (remainingXp > 0) this.addXp(killer, remainingXp);
+      }
     }
     const enemyType = enemy.type;
     this.enemies.delete(enemy.id);
@@ -1067,6 +1081,19 @@ export class GameServer {
     });
   }
 
+  awardEnemyXp(attacker, enemy, damage) {
+    const def = ENEMY_TYPES[enemy.type];
+    if (!def) return;
+    const actualDmg = Math.min(damage, enemy.hp);
+    if (actualDmg <= 0) return;
+    if (def.xpPerHit) {
+      this.addXp(attacker, def.xpPerHit);
+    } else {
+      const xpFromHit = Math.floor((actualDmg / enemy.maxHp) * def.xp);
+      if (xpFromHit > 0) this.addXp(attacker, xpFromHit);
+    }
+  }
+
   handleAttack(ws) {
     const playerId = this.wsToPlayer.get(ws);
     if (!playerId) return;
@@ -1097,7 +1124,9 @@ export class GameServer {
       const inFront = facingRight ? (eTx > aTx) : (eTx < aTx);
       if (dx <= 1 && dy <= 1 && inFront) {
         attacker.stamina -= 1;
+        const dmgBefore = e.hp;
         e.hp = Math.max(0, e.hp - damage);
+        this.awardEnemyXp(attacker, e, damage);
         this.sendTo(ws, { type: 'stats_update', ...this.getStats(attacker) });
         this.broadcastToMap(attacker.map, { type: 'enemy_hit', enemyId: e.id, hp: e.hp, damage });
         if (e.hp <= 0) {
@@ -1191,33 +1220,126 @@ export class GameServer {
     const caster = this.players.get(playerId);
     if (!caster || caster.dead) return;
 
-    if (!['MAGE','DRUID','CLERIC','PALADIN'].includes(caster.class)) {
-      this.sendTo(ws, { type: 'error', msg: 'Tu clase no puede lanzar hechizos' });
+    const spell = SPELL_DEFS[spellKey];
+    if (!spell) { this.sendTo(ws, { type: 'error', msg: 'Hechizo desconocido' }); return; }
+
+    if (!spell.classes.includes(caster.class)) {
+      this.sendTo(ws, { type: 'error', msg: 'Tu clase no puede lanzar este hechizo' });
       return;
     }
 
-    if (spellKey && SPELL_SKILL_REQUIREMENTS[spellKey]) {
-      const magicReq = SPELL_SKILL_REQUIREMENTS[spellKey].magic || 0;
-      const playerMagic = caster.skills?.magic || 0;
-      if (playerMagic < magicReq) {
-        this.sendTo(ws, { type: 'error', msg: 'Necesitas mas skill de Magia' });
-        return;
-      }
+    const magicReq = spell.magicReq || 0;
+    if ((caster.skills?.magic || 0) < magicReq) {
+      this.sendTo(ws, { type: 'error', msg: 'Necesitas mas skill de Magia' });
+      return;
     }
 
-    if ((caster.mana || 0) < SPELL_MANA_COST) {
+    if ((caster.mana || 0) < spell.mana) {
       this.sendTo(ws, { type: 'error', msg: 'No tienes suficiente mana' });
       return;
     }
 
-    if (!targetPlayerId) {
-      this.sendTo(ws, { type: 'error', msg: 'Objetivo invalido' });
+    const target = targetPlayerId ? this.players.get(targetPlayerId) : null;
+    const enemyTarget = targetPlayerId ? this.enemies.get(targetPlayerId) : null;
+
+    if (spell.type === 'heal') {
+      const healTarget = target && target.map === caster.map && target.id !== caster.id ? target : caster;
+      if (healTarget !== caster && healTarget.dead) {
+        this.sendTo(ws, { type: 'error', msg: 'El objetivo esta muerto' });
+        return;
+      }
+
+      caster.mana -= spell.mana;
+      healTarget.hp = Math.min(healTarget.maxHp, healTarget.hp + spell.heal);
+
+      const healMsg = {
+        type: 'spell_heal',
+        casterId: caster.id,
+        casterName: caster.name,
+        targetId: healTarget.id,
+        targetName: healTarget.name,
+        healAmount: spell.heal,
+        targetHp: healTarget.hp,
+      };
+      this.broadcastToMap(caster.map, healMsg, null);
+      this.sendTo(ws, { type: 'stats_update', ...this.getStats(caster) });
+      if (healTarget.id !== caster.id) {
+        const targetWs = this.getWsByPlayerId(healTarget.id);
+        if (targetWs) this.sendTo(targetWs, { type: 'stats_update', ...this.getStats(healTarget) });
+      }
       return;
     }
 
-    const target = this.players.get(targetPlayerId);
-    const enemyTarget = this.enemies.get(targetPlayerId);
-    if ((!target || target.id === caster.id) && !enemyTarget) {
+    if (spell.type === 'aoe') {
+      if (!target && !enemyTarget) {
+        this.sendTo(ws, { type: 'error', msg: 'Selecciona un objetivo para Tormenta' });
+        return;
+      }
+      const originPx = target ? target.px : enemyTarget.px;
+      const originPy = target ? target.py : enemyTarget.py;
+      const originMap = target ? target.map : enemyTarget.map;
+      if (originMap !== caster.map) {
+        this.sendTo(ws, { type: 'error', msg: 'El objetivo no esta en este mapa' });
+        return;
+      }
+
+      const map = MAPS[caster.map];
+      if (map && map.safe) {
+        this.sendTo(ws, { type: 'error', msg: 'No puedes atacar en zonas seguras' });
+        return;
+      }
+
+      caster.mana -= spell.mana;
+      const radius = spell.aoeRadius * TILE_SIZE;
+      const affected = [];
+
+      for (const [, e] of this.enemies) {
+        if (e.map !== caster.map) continue;
+        const dx = Math.abs(e.px - originPx);
+        const dy = Math.abs(e.py - originPy);
+        if (dx <= radius && dy <= radius) {
+          this.awardEnemyXp(caster, e, spell.damage);
+          e.hp = Math.max(0, e.hp - spell.damage);
+          affected.push({ id: e.id, hp: e.hp, type: 'enemy' });
+          if (e.hp <= 0) {
+            setTimeout(() => this.enemyDied(e, caster.id), 50);
+          }
+        }
+      }
+
+      for (const [, p] of this.players) {
+        if (p.id === caster.id) continue;
+        if (p.map !== caster.map || p.dead) continue;
+        const dx = Math.abs(p.px - originPx);
+        const dy = Math.abs(p.py - originPy);
+        if (dx <= radius && dy <= radius) {
+          p.hp = Math.max(0, p.hp - spell.damage);
+          affected.push({ id: p.id, hp: p.hp, type: 'player' });
+          const targetWs = this.getWsByPlayerId(p.id);
+          if (targetWs) this.sendTo(targetWs, { type: 'stats_update', ...this.getStats(p) });
+          if (p.hp <= 0) {
+            p.dead = true;
+            this.addXp(caster, 50);
+            this.broadcastToMap(p.map, { type: 'player_died', id: p.id, px: p.px, py: p.py });
+          }
+        }
+      }
+
+      this.sendTo(ws, { type: 'stats_update', ...this.getStats(caster) });
+      this.broadcastToMap(caster.map, {
+        type: 'spell_aoe',
+        casterId: caster.id,
+        casterName: caster.name,
+        targetId: targetPlayerId,
+        damage: spell.damage,
+        affected,
+      }, null);
+      this.broadcastEnemyState(caster.map);
+      return;
+    }
+
+    // damage type
+    if (!target && !enemyTarget) {
       this.sendTo(ws, { type: 'error', msg: 'Objetivo invalido' });
       return;
     }
@@ -1246,20 +1368,20 @@ export class GameServer {
     const tTx = Math.floor(targetPx / TILE_SIZE);
     const tTy = Math.floor(targetPy / TILE_SIZE);
     const dist = Math.abs(tTx - cTx) + Math.abs(tTy - cTy);
-    if (dist > 12) {
+    if (dist > spell.range) {
       this.sendTo(ws, { type: 'error', msg: 'El objetivo esta muy lejos' });
       return;
     }
 
-    caster.mana = Math.max(0, (caster.mana || 0) - SPELL_MANA_COST);
+    caster.mana -= spell.mana;
 
     if (target) {
-      target.hp = Math.max(0, target.hp - 3);
+      target.hp = Math.max(0, target.hp - spell.damage);
       const msg = {
         type: 'spell_cast',
         casterId: caster.id, casterName: caster.name,
         targetId: target.id, targetName: target.name,
-        damage: 3, targetHp: target.hp,
+        damage: spell.damage, targetHp: target.hp,
       };
       this.broadcastToMap(caster.map, msg, null);
       this.sendTo(ws, { type: 'stats_update', ...this.getStats(caster) });
@@ -1271,9 +1393,10 @@ export class GameServer {
         this.broadcastToMap(target.map, { type: 'player_died', id: target.id, px: target.px, py: target.py });
       }
     } else if (enemyTarget) {
-      enemyTarget.hp = Math.max(0, enemyTarget.hp - 3);
+      this.awardEnemyXp(caster, enemyTarget, spell.damage);
+      enemyTarget.hp = Math.max(0, enemyTarget.hp - spell.damage);
       this.sendTo(ws, { type: 'stats_update', ...this.getStats(caster) });
-      this.broadcastToMap(caster.map, { type: 'enemy_hit', enemyId: enemyTarget.id, hp: enemyTarget.hp, damage: 3 });
+      this.broadcastToMap(caster.map, { type: 'enemy_hit', enemyId: enemyTarget.id, hp: enemyTarget.hp, damage: spell.damage });
       if (enemyTarget.hp <= 0) {
         setTimeout(() => this.enemyDied(enemyTarget, caster.id), 50);
       }
@@ -1301,7 +1424,7 @@ export class GameServer {
           player.maxStamina += growth.stamina;
           player.stamina = player.maxStamina;
         }
-        player._skillPoints = (player._skillPoints || 0) + 5;
+        player.skillPoints = (player.skillPoints || 0) + 5;
 
         const ws = this.getWsByPlayerId(player.id);
         if (ws) {

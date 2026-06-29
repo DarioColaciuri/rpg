@@ -9,6 +9,12 @@ const PLAYER_H = 64;
 const SYNC_INTERVAL = 80;
 const SYNC_MIN_DIST = 3;
 
+const SPELL_TYPES = {
+  hechizo_1: 'damage',
+  curar: 'heal',
+  tormenta: 'aoe',
+};
+
 const ITEM_COLORS = {
   apple: 0xff4444,
   water: 0x4444ff,
@@ -22,6 +28,7 @@ const ENEMY_VISUALS = {
   scorpion: { color: 0xcc8844, stroke: 0xeeaa66, shape: 'rect', w: 24, h: 18 },
   wolf:     { color: 0x886644, stroke: 0xaa8866, shape: 'rect', w: 32, h: 24 },
   goblin:   { color: 0x44aa22, stroke: 0x66cc44, shape: 'rect', w: 22, h: 36 },
+  dummy:    { color: 0xcccc88, stroke: 0xeeeeaa, shape: 'rect', w: 32, h: 64 },
 };
 
 export default class GameScene extends Phaser.Scene {
@@ -167,7 +174,9 @@ export default class GameScene extends Phaser.Scene {
 
       if (!gameSocket.selectedSpell) return;
 
+      const spellType = SPELL_TYPES[gameSocket.selectedSpell] || 'damage';
       let targetId = null;
+
       for (const [id, sprite] of this.playerSprites) {
         if (id === this.myId) continue;
         const dx = Math.abs(sprite.x - clickPx);
@@ -180,6 +189,12 @@ export default class GameScene extends Phaser.Scene {
           const dy = Math.abs(entry.data.py - clickPy);
           if (dx < 22 && dy < 22) { targetId = id; break; }
         }
+      }
+
+      if (spellType === 'heal') {
+        gameSocket.send('cast_spell', { targetId, spellKey: gameSocket.selectedSpell });
+        gameSocket.selectedSpell = null;
+        return;
       }
 
       if (!targetId) {
@@ -1001,6 +1016,58 @@ export default class GameScene extends Phaser.Scene {
         this.playSpellSound();
         break;
       }
+      case 'spell_heal': {
+        if (this.playerSprites.has(msg.targetId)) {
+          const sprite = this.playerSprites.get(msg.targetId);
+          if (msg.targetHp !== undefined && sprite.playerData?.maxHp) {
+            sprite.playerData.hp = msg.targetHp;
+            sprite.updateHp(msg.targetHp, sprite.playerData.maxHp);
+          }
+          this.showFloatingText(sprite.x, sprite.y - 30, `+${msg.healAmount}`, '#44ff44');
+        }
+        break;
+      }
+      case 'spell_aoe': {
+        let originX = null, originY = null;
+        if (msg.targetId) {
+          const targetSprite = this.playerSprites.get(msg.targetId);
+          if (targetSprite) { originX = targetSprite.x; originY = targetSprite.y; }
+          const targetEnemy = this.enemySprites.get(msg.targetId);
+          if (!originX && targetEnemy) { originX = targetEnemy.data.px; originY = targetEnemy.data.py; }
+        }
+        if (originX != null) {
+          const radius = 3 * 32;
+          const gfx = this.add.graphics().setDepth(150);
+          gfx.fillStyle(0xccaaff, 0.25);
+          gfx.fillCircle(originX, originY, radius);
+          gfx.lineStyle(2, 0x8844cc, 0.7);
+          gfx.strokeCircle(originX, originY, radius);
+          this.tweens.add({
+            targets: gfx,
+            alpha: 0,
+            duration: 800,
+            ease: 'Power2',
+            onComplete: () => gfx.destroy(),
+          });
+        }
+        for (const aff of (msg.affected || [])) {
+          if (aff.type === 'player' && this.playerSprites.has(aff.id)) {
+            const sprite = this.playerSprites.get(aff.id);
+            if (aff.hp !== undefined && sprite.playerData?.maxHp) {
+              sprite.playerData.hp = aff.hp;
+              sprite.updateHp(aff.hp, sprite.playerData.maxHp);
+            }
+            this.showFloatingText(sprite.x, sprite.y - 30, `-${msg.damage}`, '#ccaa44');
+          } else if (aff.type === 'enemy' && this.enemySprites.has(aff.id)) {
+            const entry = this.enemySprites.get(aff.id);
+            entry.data.hp = aff.hp;
+            this.updateEnemySprite(entry);
+            this.showFloatingText(entry.data.px, entry.data.py - 20, `-${msg.damage}`, '#ccaa44');
+          }
+        }
+        this.playSpellSound();
+        break;
+      }
       case 'player_respawned': {
         if (this.playerSprites.has(msg.id)) {
           const sprite = this.playerSprites.get(msg.id);
@@ -1347,6 +1414,8 @@ export default class GameScene extends Phaser.Scene {
     if (this._isDead) return;
 
     if (Phaser.Input.Keyboard.JustDown(this._rulerKey)) {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       this._showRuler = !this._showRuler;
       if (!this._showRuler) {
         this._rulerGfx.clear();

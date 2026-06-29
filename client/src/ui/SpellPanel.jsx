@@ -1,11 +1,27 @@
 import React from 'react';
 
-const SPELLCASTER_CLASSES = ['MAGE', 'DRUID', 'CLERIC', 'PALADIN'];
+const SPELLS_BY_CLASS = {
+  MAGE: [
+    { key: 'hechizo_1', name: 'Proyectil', mana: 5, type: 'damage' },
+    { key: 'tormenta', name: 'Tormenta', mana: 15, type: 'aoe' },
+  ],
+  DRUID: [
+    { key: 'hechizo_1', name: 'Proyectil', mana: 5, type: 'damage' },
+    { key: 'curar', name: 'Curar', mana: 8, type: 'heal' },
+    { key: 'tormenta', name: 'Tormenta', mana: 15, type: 'aoe' },
+  ],
+  CLERIC: [
+    { key: 'curar', name: 'Curar', mana: 8, type: 'heal' },
+  ],
+  PALADIN: [
+    { key: 'curar', name: 'Curar', mana: 8, type: 'heal' },
+  ],
+};
 
 export default function SpellPanel({ playerClass, selectedSpell, onSelectSpell }) {
-  const isSpellcaster = SPELLCASTER_CLASSES.includes(playerClass);
+  const spells = SPELLS_BY_CLASS[playerClass];
 
-  if (!isSpellcaster) {
+  if (!spells) {
     return (
       <div className="spell-panel">
         <div className="spell-panel-title">Spells</div>
@@ -14,18 +30,30 @@ export default function SpellPanel({ playerClass, selectedSpell, onSelectSpell }
     );
   }
 
-  const isSelected = selectedSpell === 'hechizo_1';
-
   return (
     <div className="spell-panel">
       <div className="spell-panel-title">Spells</div>
-      <button
-        className={`spell-btn ${isSelected ? 'spell-active' : ''}`}
-        onClick={() => onSelectSpell('hechizo_1')}
-      >
-        Hechizo 1
-      </button>
-      <div className="spell-info">Left click to cast on target</div>
+      {spells.map((spell) => {
+        const isSelected = selectedSpell === spell.key;
+        let cls = 'spell-btn';
+        if (isSelected) cls += ' spell-active';
+        if (spell.type === 'heal') cls += ' spell-heal-btn';
+        return (
+          <button
+            key={spell.key}
+            className={cls}
+            onClick={() => onSelectSpell(spell.key)}
+            title={`${spell.name} - ${spell.mana} mana`}
+          >
+            {spell.name} <span className="spell-mana-cost">({spell.mana})</span>
+          </button>
+        );
+      })}
+      <div className="spell-info">
+        {spells.some(s => s.type === 'heal')
+          ? 'Click ally to heal / empty to self-heal'
+          : 'Left click to cast on target'}
+      </div>
     </div>
   );
 }

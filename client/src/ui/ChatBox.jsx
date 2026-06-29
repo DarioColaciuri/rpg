@@ -17,12 +17,12 @@ export default function ChatBox({ messages, onSend }) {
       if (e.key === 'Enter') {
         if (!open) {
           e.preventDefault();
-          e.stopPropagation();
+          e.stopImmediatePropagation();
           setOpen(true);
           setTimeout(() => inputRef.current?.focus(), 50);
         } else {
           e.preventDefault();
-          e.stopPropagation();
+          e.stopImmediatePropagation();
           if (input.trim()) {
             onSend(input);
             setInput('');
@@ -31,9 +31,11 @@ export default function ChatBox({ messages, onSend }) {
         }
       } else if (e.key === 'Escape' && open) {
         e.preventDefault();
-        e.stopPropagation();
+        e.stopImmediatePropagation();
         setOpen(false);
         setInput('');
+      } else if (open) {
+        e.stopImmediatePropagation();
       }
     };
     window.addEventListener('keydown', handleKey, true);
