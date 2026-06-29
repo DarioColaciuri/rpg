@@ -51,6 +51,7 @@ ALTER TABLE characters ADD COLUMN IF NOT EXISTS gold INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE characters ADD COLUMN IF NOT EXISTS inventory JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE characters ADD COLUMN IF NOT EXISTS skills JSONB DEFAULT '{"combat_arms":0,"magic":0,"shield_defense":0,"dodge":0,"meditation":0}'::jsonb;
 ALTER TABLE characters ADD COLUMN IF NOT EXISTS skill_points INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE characters ADD COLUMN IF NOT EXISTS equipment JSONB DEFAULT '{}'::jsonb;
 
 -- STEP 1 migrations: expand classes and races
 -- If constraint names differ, find them with:

@@ -8,6 +8,12 @@ import ShopPanel from './ShopPanel.jsx';
 const ITEM_DEFS = {
   apple: { name: 'Apple' },
   water: { name: 'Water' },
+  wooden_sword: { name: 'Wooden Sword' },
+  iron_sword: { name: 'Iron Sword' },
+  cloth_armor: { name: 'Cloth Armor' },
+  leather_armor: { name: 'Leather Armor' },
+  wooden_shield: { name: 'Wooden Shield' },
+  leather_helm: { name: 'Leather Helm' },
 };
 
 export default function GameScreen({ character, session, onLeave }) {
@@ -130,6 +136,23 @@ export default function GameScreen({ character, session, onLeave }) {
     gameSocket.selectedSlot = null;
   };
 
+  const handleEquip = (slot) => {
+    gameSocket.send('equip_item', { slot });
+  };
+
+  const handleUnequip = (equipSlot) => {
+    gameSocket.send('unequip_item', { equipSlot });
+  };
+
+  const handleSwap = (slotA, slotB) => {
+    gameSocket.send('swap_inventory', { slotA, slotB });
+  };
+
+  const handleDropFromInventory = (slot) => {
+    const item = inventory.find(inv => inv.slot === slot);
+    if (item) setDropDialog({ slot, itemType: item.itemType, maxQty: item.quantity, qty: 1 });
+  };
+
   const handleBuy = (itemType, quantity = 1) => {
     gameSocket.send('buy_item', { itemType, quantity });
   };
@@ -170,6 +193,10 @@ export default function GameScreen({ character, session, onLeave }) {
         selectedSlot={selectedSlot}
         onSelectSlot={handleSelectSlot}
         onUseSlot={handleUseSlot}
+        onEquip={handleEquip}
+        onUnequip={handleUnequip}
+        onSwap={handleSwap}
+        onDropFromInventory={handleDropFromInventory}
         onAssignSkill={handleAssignSkill}
       />
       {shopOpen && (

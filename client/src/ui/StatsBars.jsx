@@ -24,7 +24,8 @@ export default function StatsBars({ stats }) {
       </div>
       {barConfig.map(({ key, label, color, bg }) => {
         const current = stats[key] ?? 0;
-        const max = stats[`max${key.charAt(0).toUpperCase() + key.slice(1)}`] ?? 100;
+        let max = stats[`max${key.charAt(0).toUpperCase() + key.slice(1)}`] ?? 100;
+        if (key === 'hp' && stats.effectiveMaxHp != null) max = stats.effectiveMaxHp;
         const pct = Math.min(100, Math.max(0, (current / max) * 100));
         return (
           <div key={key} className="stat-bar-row">

@@ -501,9 +501,6 @@ body {
 
 /* Skills Panel */
 .skills-panel {
-  position: absolute;
-  top: 210px;
-  right: 10px;
   background: rgba(0, 0, 0, 0.75);
   border: 1px solid #444;
   border-radius: 6px;
@@ -589,10 +586,17 @@ body {
 }
 
 /* Inventory */
-.inventory-panel {
+.game-ui-right {
   position: absolute;
   top: 10px;
   right: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.inventory-panel {
   background: rgba(0, 0, 0, 0.75);
   border: 1px solid #444;
   border-radius: 6px;
@@ -605,6 +609,38 @@ body {
   color: #aaa;
   margin-bottom: 8px;
   text-align: center;
+}
+
+.equipment-slots {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+
+.equip-slot {
+  width: 40px;
+  height: 40px;
+  background: #0a0a1a;
+  border: 1px solid #444;
+  border-radius: 3px;
+  position: relative;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.equip-slot:hover {
+  border-color: #666;
+}
+.equip-slot-filled {
+  border-color: #ffcc44;
+  background: #111122;
+}
+
+.equip-slot-label {
+  font-size: 11px;
+  color: #555;
+  font-weight: bold;
 }
 
 .inventory-slots {
@@ -634,6 +670,30 @@ body {
 }
 .inv-slot-filled {
   background: #111122;
+}
+.inv-slot-equipped {
+  border-color: #ffcc44 !important;
+  box-shadow: 0 0 6px rgba(255, 204, 68, 0.4);
+}
+.inv-slot-dragging {
+  opacity: 0.4;
+}
+.inv-slot-droppable {
+  border-color: #ffcc44;
+  border-style: dashed;
+}
+
+.inv-equipped-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  font-size: 7px;
+  color: #000;
+  background: #ffcc44;
+  border-radius: 2px;
+  padding: 0 2px;
+  font-weight: bold;
+  line-height: 1.2;
 }
 
 .inv-item-icon {

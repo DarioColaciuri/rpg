@@ -3,12 +3,31 @@ import React, { useState } from 'react';
 const ITEM_DEFS = {
   apple: { name: 'Apple', color: '#cc4444' },
   water: { name: 'Water', color: '#4444cc' },
+  wooden_sword: { name: 'Wooden Sword', color: '#aa8844' },
+  iron_sword: { name: 'Iron Sword', color: '#8899aa' },
+  cloth_armor: { name: 'Cloth Armor', color: '#88aa88' },
+  leather_armor: { name: 'Leather Armor', color: '#aa8866' },
+  wooden_shield: { name: 'Wooden Shield', color: '#aa8844' },
+  leather_helm: { name: 'Leather Helm', color: '#aa8866' },
 };
 
 const SHOP_ITEMS = [
   { type: 'apple', name: 'Apple', price: 10, color: '#cc4444' },
   { type: 'water', name: 'Water', price: 10, color: '#4444cc' },
+  { type: 'wooden_sword', name: 'Wooden Sword', price: 100, color: '#aa8844' },
+  { type: 'iron_sword', name: 'Iron Sword', price: 400, color: '#8899aa' },
+  { type: 'cloth_armor', name: 'Cloth Armor', price: 80, color: '#88aa88' },
+  { type: 'leather_armor', name: 'Leather Armor', price: 300, color: '#aa8866' },
+  { type: 'wooden_shield', name: 'Wooden Shield', price: 120, color: '#aa8844' },
+  { type: 'leather_helm', name: 'Leather Helm', price: 60, color: '#aa8866' },
 ];
+
+const SELL_PRICES = {
+  apple: 5, water: 5,
+  wooden_sword: 50, iron_sword: 200,
+  cloth_armor: 40, leather_armor: 150,
+  wooden_shield: 60, leather_helm: 30,
+};
 
 export default function ShopPanel({ inventory, gold, onBuy, onSell, onClose }) {
   const [selectedInv, setSelectedInv] = useState(null);
@@ -16,10 +35,10 @@ export default function ShopPanel({ inventory, gold, onBuy, onSell, onClose }) {
   const [buyQty, setBuyQty] = useState(1);
   const [sellQty, setSellQty] = useState(1);
 
-  const items = Array.from({ length: 12 }, (_, i) => {
+  const items = Array.from({ length: 16 }, (_, i) => {
     const item = inventory?.find(inv => inv.slot === i);
     return { slot: i, item };
-  }).filter(s => s.item);
+  }).filter(s => s.item && (SELL_PRICES[s.item.itemType] || 0) > 0 && !s.item.equipped);
 
   const selectedInvItem = items.find(s => s.slot === selectedInv);
   const maxSellQty = selectedInvItem?.item?.quantity || 0;
@@ -63,7 +82,7 @@ export default function ShopPanel({ inventory, gold, onBuy, onSell, onClose }) {
               disabled={selectedInv === null}
               onClick={() => { if (selectedInv !== null) { onSell(selectedInv, sellQty); setSelectedInv(null); setSellQty(1); } }}
             >
-              Sell ({sellQty * 5}g)
+              Sell ({sellQty * (SELL_PRICES[selectedInvItem?.item?.itemType] || 0)}g)
             </button>
           </div>
 

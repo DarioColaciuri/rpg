@@ -44,6 +44,7 @@ function buildCharUpdate(player) {
     level: player.level ?? 1,
     xp: player.xp ?? 0,
     inventory: player.inventory || [],
+    equipment: player.equipment || { weapon: null, clothing: null, helmet: null, shield: null },
     skills: player.skills || null,
     skill_points: player.skillPoints ?? 0,
   };
@@ -272,6 +273,36 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'assign_skill') {
       gameServer.handleAssignSkill(ws, msg.skillName);
+      const pId = gameServer.wsToPlayer.get(ws);
+      if (pId) {
+        const player = gameServer.players.get(pId);
+        if (player) await saveChar(supabase, player);
+      }
+      return;
+    }
+
+    if (msg.type === 'equip_item') {
+      gameServer.handleEquipItem(ws, msg.slot);
+      const pId = gameServer.wsToPlayer.get(ws);
+      if (pId) {
+        const player = gameServer.players.get(pId);
+        if (player) await saveChar(supabase, player);
+      }
+      return;
+    }
+
+    if (msg.type === 'unequip_item') {
+      gameServer.handleUnequipItem(ws, msg.equipSlot);
+      const pId = gameServer.wsToPlayer.get(ws);
+      if (pId) {
+        const player = gameServer.players.get(pId);
+        if (player) await saveChar(supabase, player);
+      }
+      return;
+    }
+
+    if (msg.type === 'swap_inventory') {
+      gameServer.handleSwapInventory(ws, msg.slotA, msg.slotB);
       const pId = gameServer.wsToPlayer.get(ws);
       if (pId) {
         const player = gameServer.players.get(pId);

@@ -17,6 +17,10 @@ export default function GameUI({
   selectedSlot,
   onSelectSlot,
   onUseSlot,
+  onEquip,
+  onUnequip,
+  onSwap,
+  onDropFromInventory,
   onAssignSkill,
 }) {
   return (
@@ -41,13 +45,18 @@ export default function GameUI({
           selectedSlot={selectedSlot}
           onSelectSlot={onSelectSlot}
           onUseSlot={onUseSlot}
+          onEquip={onEquip}
+          onUnequip={onUnequip}
+          onSwap={onSwap}
+          onDropFromInventory={onDropFromInventory}
+        />
+        <div style={{ height: 6 }} />
+        <SkillsPanel
+          skills={stats?.skills}
+          skillPoints={stats?.skillPoints}
+          onAssignSkill={onAssignSkill}
         />
       </div>
-      <SkillsPanel
-        skills={stats?.skills}
-        skillPoints={stats?.skillPoints}
-        onAssignSkill={onAssignSkill}
-      />
     </div>
   );
 }

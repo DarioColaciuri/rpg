@@ -160,9 +160,15 @@ const ITEM_DEFS = {
   apple: { name: 'Apple', stat: 'food', amount: 10 },
   water: { name: 'Water', stat: 'drink', amount: 10 },
   gold_pile: { name: 'Gold', type: 'gold' },
+  wooden_sword:   { name: 'Wooden Sword', equipSlot: 'weapon', damage: 3,  size: 'any' },
+  iron_sword:     { name: 'Iron Sword',   equipSlot: 'weapon', damage: 7,  size: 'any' },
+  cloth_armor:    { name: 'Cloth Armor',  equipSlot: 'clothing', hp: 10,   size: 'any' },
+  leather_armor:  { name: 'Leather Armor',equipSlot: 'clothing', hp: 25,   size: 'any' },
+  wooden_shield:  { name: 'Wooden Shield',equipSlot: 'shield', defense: 2, size: 'any' },
+  leather_helm:   { name: 'Leather Helm', equipSlot: 'helmet', hp: 5,      size: 'any' },
 };
 
-const MAX_INVENTORY_SLOTS = 12;
+const MAX_INVENTORY_SLOTS = 16;
 const STAT_DRAIN_INTERVAL = 10000;
 const STAT_DRAIN_AMOUNT = 10;
 const PICKUP_RANGE = 48;
@@ -177,11 +183,23 @@ const DEFAULT_GROUND_ITEMS = {
 const SHOP_PRICES = {
   apple: 10,
   water: 10,
+  wooden_sword: 100,
+  iron_sword: 400,
+  cloth_armor: 80,
+  leather_armor: 300,
+  wooden_shield: 120,
+  leather_helm: 60,
 };
 
 const SELL_PRICES = {
   apple: 5,
   water: 5,
+  wooden_sword: 50,
+  iron_sword: 200,
+  cloth_armor: 40,
+  leather_armor: 150,
+  wooden_shield: 60,
+  leather_helm: 30,
 };
 
 const NPCS = {
@@ -510,9 +528,10 @@ export class GameServer {
     const def = ENEMY_TYPES[enemy.type];
     this.broadcastToMap(enemy.map, { type: 'enemy_died', id: enemy.id });
     if (def && def.gold > 0) {
+      const { px, py } = this.findFreeGroundSpot(enemy.map, enemy.px, enemy.py);
       const gid = `${enemy.map}_${this._nextGroundItemId++}`;
-      this.groundItems.set(gid, { id: gid, map: enemy.map, px: enemy.px, py: enemy.py, itemType: 'gold_pile', amount: def.gold });
-      this.broadcastToMap(enemy.map, { type: 'ground_item_added', id: gid, map: enemy.map, px: enemy.px, py: enemy.py, itemType: 'gold_pile', amount: def.gold });
+      this.groundItems.set(gid, { id: gid, map: enemy.map, px, py, itemType: 'gold_pile', amount: def.gold });
+      this.broadcastToMap(enemy.map, { type: 'ground_item_added', id: gid, map: enemy.map, px, py, itemType: 'gold_pile', amount: def.gold });
     }
     if (killerId) {
       const killer = this.players.get(killerId);
@@ -546,10 +565,12 @@ export class GameServer {
       animState: player.animState ?? 'walk',
       isCrouching: player.isCrouching ?? false,
       headVariant: player.headVariant ?? 1,
+      equipment: player.equipment || { weapon: null, clothing: null, helmet: null, shield: null },
     };
   }
 
   getStats(player) {
+    const eff = this.getEffectiveStats(player);
     return {
       name: player.name,
       class: player.class,
@@ -559,6 +580,7 @@ export class GameServer {
       py: player.py,
       hp: player.hp,
       maxHp: player.maxHp,
+      effectiveMaxHp: eff.effectiveMaxHp,
       mana: player.mana,
       maxMana: player.maxMana,
       stamina: player.stamina,
@@ -571,6 +593,7 @@ export class GameServer {
       xpNeeded: XP_TABLE[player.level] || 0,
       headVariant: player.headVariant ?? 1,
       inventory: player.inventory || [],
+      equipment: player.equipment || { weapon: null, clothing: null, helmet: null, shield: null },
       skills: player.skills,
       skillPoints: player.skillPoints ?? 0,
     };
@@ -645,7 +668,20 @@ export class GameServer {
         meditation: 0,
       },
       skillPoints: character.skill_points ?? 0,
+      equipment: null,
     };
+
+    player.equipment = { weapon: null, clothing: null, helmet: null, shield: null };
+    if (character.equipment && typeof character.equipment === 'object') {
+      player.equipment = { ...player.equipment, ...character.equipment };
+    }
+    if (inventory) {
+      for (const inv of inventory) {
+        if (inv.equipped && player.equipment.hasOwnProperty(inv.equipped)) {
+          player.equipment[inv.equipped] = inv.itemType;
+        }
+      }
+    }
 
     this.players.set(player.id, player);
     this.wsToPlayer.set(ws, player.id);
@@ -666,6 +702,23 @@ export class GameServer {
     const player = this.players.get(playerId);
     if (!player) return [];
     return player.inventory || [];
+  }
+
+  findFreeGroundSpot(mapName, px, py) {
+    const offsets = [0, 18, -18, 36, -36, 54, -54, 28, -28, 44, -44];
+    for (const off of offsets) {
+      const tx = px + off;
+      const ty = py + (off !== 0 ? Math.floor(Math.random() * 12 - 6) : 0);
+      let occupied = false;
+      for (const [, gi] of this.groundItems) {
+        if (gi.map === mapName && Math.abs(gi.px - tx) < 16 && Math.abs(gi.py - ty) < 16) {
+          occupied = true;
+          break;
+        }
+      }
+      if (!occupied) return { px: tx, py: ty };
+    }
+    return { px: px + Math.floor(Math.random() * 80 - 40), py: py + Math.floor(Math.random() * 20 - 10) };
   }
 
   handlePickupItem(ws, groundItemId) {
@@ -720,14 +773,21 @@ export class GameServer {
     const invItem = player.inventory.find(inv => inv.slot === slot);
     if (!invItem) { this.sendTo(ws, { type: 'error', msg: 'No item in slot' }); return; }
 
+    if (invItem.equipped) {
+      player.equipment = player.equipment || { weapon: null, clothing: null, helmet: null, shield: null };
+      player.equipment[invItem.equipped] = null;
+      delete invItem.equipped;
+    }
+
     quantity = Math.min(Math.max(1, Math.floor(quantity) || 1), invItem.quantity);
 
     invItem.quantity -= quantity;
     if (invItem.quantity <= 0) player.inventory = player.inventory.filter(inv => inv.slot !== slot);
 
+    const { px, py } = this.findFreeGroundSpot(player.map, player.px, player.py);
     const id = `${player.map}_${this._nextGroundItemId++}`;
-    this.groundItems.set(id, { id, map: player.map, px: player.px, py: player.py, itemType: invItem.itemType, amount: quantity });
-    this.broadcastToMap(player.map, { type: 'ground_item_added', id, map: player.map, px: player.px, py: player.py, itemType: invItem.itemType, amount: quantity });
+    this.groundItems.set(id, { id, map: player.map, px, py, itemType: invItem.itemType, amount: quantity });
+    this.broadcastToMap(player.map, { type: 'ground_item_added', id, map: player.map, px, py, itemType: invItem.itemType, amount: quantity });
     this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
     return { inventoryChanged: true };
   }
@@ -743,6 +803,8 @@ export class GameServer {
 
     const def = ITEM_DEFS[invItem.itemType];
     if (!def) { this.sendTo(ws, { type: 'error', msg: 'Unknown item' }); return; }
+
+    if (invItem.equipped) { this.sendTo(ws, { type: 'error', msg: 'Unequip before using' }); return; }
 
     if (def.stat === 'food') player.food = Math.min(player.food + def.amount, player.maxFood ?? 100);
     else if (def.stat === 'drink') player.drink = Math.min(player.drink + def.amount, player.maxDrink ?? 100);
@@ -1019,7 +1081,8 @@ export class GameServer {
     const growth = CLASS_GROWTH[attacker.class];
     const levelDmg = growth ? Math.floor((attacker.level - 1) * growth.damage) : 0;
     const skillDmg = Math.floor(((attacker.skills?.combat_arms || 0)) / 10);
-    const damage = (CLASS_MELEE_DAMAGE[attacker.class] || 1) + levelDmg + skillDmg;
+    const eqDmg = this.getEffectiveStats(attacker).effectiveDamage;
+    const damage = (CLASS_MELEE_DAMAGE[attacker.class] || 1) + levelDmg + skillDmg + eqDmg;
 
     const aTx = Math.floor(attacker.px / TILE_SIZE);
     const aTy = Math.floor(attacker.py / TILE_SIZE);
@@ -1249,6 +1312,114 @@ export class GameServer {
         break;
       }
     }
+  }
+
+  getEffectiveStats(player) {
+    let bonusHp = 0, bonusDamage = 0, damageReduction = 0;
+
+    const equippedItems = new Set();
+    for (const [slot, itemType] of Object.entries(player.equipment || {})) {
+      if (itemType) equippedItems.add(itemType);
+    }
+    for (const inv of (player.inventory || [])) {
+      if (inv.equipped) equippedItems.add(inv.itemType);
+    }
+
+    for (const itemType of equippedItems) {
+      const def = ITEM_DEFS[itemType];
+      if (!def) continue;
+      bonusHp += def.hp || 0;
+      bonusDamage += def.damage || 0;
+      damageReduction += def.defense || 0;
+    }
+
+    return {
+      effectiveMaxHp: player.maxHp + bonusHp,
+      effectiveDamage: bonusDamage,
+      damageReduction,
+    };
+  }
+
+  handleEquipItem(ws, inventorySlot) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const player = this.players.get(playerId);
+    if (!player || player.dead) return;
+
+    player.equipment = player.equipment || { weapon: null, clothing: null, helmet: null, shield: null };
+
+    const invItem = (player.inventory || []).find(inv => inv.slot === inventorySlot);
+    if (!invItem) { this.sendTo(ws, { type: 'error', msg: 'No item in that slot' }); return; }
+
+    const def = ITEM_DEFS[invItem.itemType];
+    if (!def || !def.equipSlot) { this.sendTo(ws, { type: 'error', msg: 'This item cannot be equipped' }); return; }
+
+    if (invItem.equipped) { this.sendTo(ws, { type: 'error', msg: 'Item already equipped' }); return; }
+
+    const itemSize = def.size || 'any';
+    if (itemSize !== 'any') {
+      const raceIsTall = RACE_HEIGHT.tall.includes(player.race);
+      if (itemSize === 'tall' && !raceIsTall) {
+        this.sendTo(ws, { type: 'error', msg: 'Solo razas altas pueden usar este item' });
+        return;
+      }
+      if (itemSize === 'short' && raceIsTall) {
+        this.sendTo(ws, { type: 'error', msg: 'Solo razas bajas pueden usar este item' });
+        return;
+      }
+    }
+
+    const equipSlot = def.equipSlot;
+
+    if (player.equipment[equipSlot]) {
+      const oldEquipped = (player.inventory || []).find(inv => inv.equipped === equipSlot);
+      if (oldEquipped) delete oldEquipped.equipped;
+    }
+
+    player.equipment[equipSlot] = invItem.itemType;
+    invItem.equipped = equipSlot;
+
+    this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
+  }
+
+  handleUnequipItem(ws, equipSlot) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const player = this.players.get(playerId);
+    if (!player || player.dead) return;
+
+    player.equipment = player.equipment || { weapon: null, clothing: null, helmet: null, shield: null };
+
+    if (!player.equipment[equipSlot]) {
+      this.sendTo(ws, { type: 'error', msg: 'Nothing equipped in that slot' });
+      return;
+    }
+
+    const invItem = (player.inventory || []).find(inv => inv.equipped === equipSlot);
+    if (invItem) delete invItem.equipped;
+
+    player.equipment[equipSlot] = null;
+
+    this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
+  }
+
+  handleSwapInventory(ws, slotA, slotB) {
+    const playerId = this.wsToPlayer.get(ws);
+    if (!playerId) return;
+    const player = this.players.get(playerId);
+    if (!player || player.dead) return;
+
+    if (typeof slotA !== 'number' || typeof slotB !== 'number' || slotA === slotB) return;
+    if (slotA < 0 || slotA >= MAX_INVENTORY_SLOTS || slotB < 0 || slotB >= MAX_INVENTORY_SLOTS) return;
+
+    const inv = player.inventory || [];
+    const itemA = inv.find(i => i.slot === slotA);
+    const itemB = inv.find(i => i.slot === slotB);
+
+    if (itemA) itemA.slot = slotB;
+    if (itemB) itemB.slot = slotA;
+
+    this.sendTo(ws, { type: 'stats_update', ...this.getStats(player) });
   }
 
   handleChat(ws, text) {
