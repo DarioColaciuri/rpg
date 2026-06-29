@@ -177,8 +177,8 @@ const ITEM_DEFS = {
 };
 
 const MAX_INVENTORY_SLOTS = 16;
-const STAT_DRAIN_INTERVAL = 60000;
-const STAT_DRAIN_AMOUNT = 5;
+const STAT_DRAIN_INTERVAL = 10000;
+const STAT_DRAIN_AMOUNT = 10;
 const PICKUP_RANGE = 48;
 
 const DEFAULT_GROUND_ITEMS = {
@@ -249,6 +249,7 @@ export class GameServer {
     this.startHpRegen();
     this.startMeditationRegen();
     this.startEnemyAI();
+    this.startCriminalCleanup();
   }
 
   startStaminaRegen() {
@@ -399,6 +400,25 @@ export class GameServer {
         for (const mapName of mapsWithEnemies) this.broadcastEnemyState(mapName);
       }
     }, ENEMY_TICK);
+  }
+
+  startCriminalCleanup() {
+    setInterval(() => {
+      const now = Date.now();
+      for (const [, p] of this.players) {
+        if (p.alignment === 'criminal' && now >= p.criminalUntil) {
+          p.alignment = 'citizen';
+          p.criminalUntil = 0;
+          const ws = this.getWsByPlayerId(p.id);
+          if (ws) this.sendTo(ws, { type: 'stats_update', ...this.getStats(p) });
+          this.broadcastToMap(p.map, {
+            type: 'player_alignment',
+            id: p.id,
+            alignment: 'citizen',
+          });
+        }
+      }
+    }, 10000);
   }
 
   updateEnemy(enemy, deltaMs) {
@@ -580,6 +600,7 @@ export class GameServer {
       isCrouching: player.isCrouching ?? false,
       headVariant: player.headVariant ?? 1,
       equipment: player.equipment || { weapon: null, clothing: null, helmet: null, shield: null },
+      alignment: player.alignment || 'citizen',
     };
   }
 
@@ -610,6 +631,7 @@ export class GameServer {
       equipment: player.equipment || { weapon: null, clothing: null, helmet: null, shield: null },
       skills: player.skills,
       skillPoints: player.skillPoints ?? 0,
+      alignment: player.alignment || 'citizen',
     };
   }
 
@@ -683,6 +705,8 @@ export class GameServer {
       },
       skillPoints: character.skill_points ?? 0,
       equipment: null,
+      alignment: 'citizen',
+      criminalUntil: 0,
     };
 
     player.equipment = { weapon: null, clothing: null, helmet: null, shield: null };
@@ -967,11 +991,13 @@ export class GameServer {
   }
 
   broadcastToMap(mapName, msg, excludeWs) {
+    let serialized = null;
     for (const [ws, pid] of this.wsToPlayer) {
       if (ws === excludeWs) continue;
       const p = this.players.get(pid);
-      if (p && p.map === mapName) {
-        this.sendTo(ws, msg);
+      if (p && p.map === mapName && ws.readyState === 1) {
+        if (!serialized) serialized = JSON.stringify(msg);
+        ws.send(serialized);
       }
     }
   }
@@ -1162,6 +1188,17 @@ export class GameServer {
       return;
     }
 
+    if (attacker.alignment === 'citizen' && target.alignment === 'citizen') {
+      attacker.alignment = 'criminal';
+      attacker.criminalUntil = Date.now() + 300000;
+      this.sendTo(ws, { type: 'stats_update', ...this.getStats(attacker) });
+      this.broadcastToMap(attacker.map, {
+        type: 'player_alignment',
+        id: attacker.id,
+        alignment: 'criminal',
+      });
+    }
+
     attacker.stamina -= 1;
     target.hp = Math.max(0, target.hp - damage);
 
@@ -1313,6 +1350,10 @@ export class GameServer {
         const dx = Math.abs(p.px - originPx);
         const dy = Math.abs(p.py - originPy);
         if (dx <= radius && dy <= radius) {
+          if (caster.alignment === 'citizen' && p.alignment === 'citizen') {
+            caster.alignment = 'criminal';
+            caster.criminalUntil = Date.now() + 300000;
+          }
           p.hp = Math.max(0, p.hp - spell.damage);
           affected.push({ id: p.id, hp: p.hp, type: 'player' });
           const targetWs = this.getWsByPlayerId(p.id);
@@ -1374,6 +1415,17 @@ export class GameServer {
     }
 
     caster.mana -= spell.mana;
+
+    if (target && caster.alignment === 'citizen' && target.alignment === 'citizen') {
+      caster.alignment = 'criminal';
+      caster.criminalUntil = Date.now() + 300000;
+      this.sendTo(ws, { type: 'stats_update', ...this.getStats(caster) });
+      this.broadcastToMap(caster.map, {
+        type: 'player_alignment',
+        id: caster.id,
+        alignment: 'criminal',
+      });
+    }
 
     if (target) {
       target.hp = Math.max(0, target.hp - spell.damage);

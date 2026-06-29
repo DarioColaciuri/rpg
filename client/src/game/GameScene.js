@@ -930,6 +930,13 @@ export default class GameScene extends Phaser.Scene {
         }
         break;
       }
+      case 'player_alignment': {
+        if (this.playerSprites.has(msg.id)) {
+          const sprite = this.playerSprites.get(msg.id);
+          sprite.setAlignment(msg.alignment);
+        }
+        break;
+      }
       case 'player_meditating': {
         if (this.playerSprites.has(msg.id) && msg.id !== this.myId) {
           const s = this.playerSprites.get(msg.id);
@@ -1091,6 +1098,10 @@ export default class GameScene extends Phaser.Scene {
       }
       case 'stats_update': {
         this._localStamina = msg.stamina ?? 0;
+        if (msg.alignment && this.myId && this.playerSprites.has(this.myId)) {
+          const local = this.playerSprites.get(this.myId);
+          local.setAlignment(msg.alignment);
+        }
         break;
       }
       case 'level_up': {
@@ -1379,26 +1390,29 @@ export default class GameScene extends Phaser.Scene {
       this._lastCursorSpell = gameSocket.selectedSpell;
     }
 
-    for (const [, entry] of this.enemySprites) {
-      if (entry._targetX != null && delta > 0) {
-        const f = 1 - Math.exp(-delta / 30);
-        entry.data.px += (entry._targetX - entry.data.px) * f;
-        entry.data.py += (entry._targetY - entry.data.py) * f;
-        entry.gfx.setPosition(entry.data.px, entry.data.py);
-        entry.hpBg.setPosition(entry.data.px, entry.data.py);
-        entry.hpBar.setPosition(entry.data.px, entry.data.py);
-        entry.body.setPosition(entry.data.px, entry.data.py);
-        entry.body.body.updateFromGameObject();
+    if (delta > 0) {
+      const enemyLerpF = 1 - Math.exp(-delta / 30);
+      for (const [, entry] of this.enemySprites) {
+        if (entry._targetX != null) {
+          entry.data.px += (entry._targetX - entry.data.px) * enemyLerpF;
+          entry.data.py += (entry._targetY - entry.data.py) * enemyLerpF;
+          entry.gfx.setPosition(entry.data.px, entry.data.py);
+          entry.hpBg.setPosition(entry.data.px, entry.data.py);
+          entry.hpBar.setPosition(entry.data.px, entry.data.py);
+          entry.body.setPosition(entry.data.px, entry.data.py);
+          entry.body.body.updateFromGameObject();
+        }
       }
+      this.enemyBodyGroup.refresh();
     }
-    this.enemyBodyGroup.refresh();
 
     if (!this._isDead && player) {
       for (const [, entry] of this.enemySprites) {
         const dx = player.x - entry.data.px;
         const dy = player.y - entry.data.py;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 30 && dist > 0) {
+        const distSq = dx * dx + dy * dy;
+        if (distSq < 900 && distSq > 0) {
+          const dist = Math.sqrt(distSq);
           const nx = dx / dist;
           const ny = dy / dist;
           player.x += nx * (30 - dist);
@@ -1467,12 +1481,6 @@ export default class GameScene extends Phaser.Scene {
         gameSocket.send('meditate_stop');
       } else {
         gameSocket.send('meditate_start');
-      }
-    }
-
-    for (let i = 0; i < 10; i++) {
-      if (Phaser.Input.Keyboard.JustDown(this.numKeys[i])) {
-        gameSocket.send('use_item', { slot: i });
       }
     }
 

@@ -37,6 +37,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this.animState = 'walk';
     this._targetX = null;
     this._targetY = null;
+    this._lastHpRatio = -1;
 
     this.headVariant = playerData.headVariant || 1;
 
@@ -85,7 +86,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
     const fontStyle = {
       fontSize: '10px',
       fontFamily: 'monospace',
-      color: '#ffffff',
+      color: playerData.alignment === 'criminal' ? '#ff4444' : '#ffffff',
       stroke: '#000000',
       strokeThickness: 3,
       align: 'center',
@@ -386,7 +387,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
   _drawHpBarBg() {
     this.hpBarBg.fillStyle(0x333333, 1);
-    this.hpBarBg.fillRect(-PLAYER_W / 2, 0, PLAYER_W, 3);
+    this.hpBarBg.fillRect(0, 0, PLAYER_W, 3);
   }
 
   showBubble(text) {
@@ -397,6 +398,12 @@ export default class Player extends Phaser.GameObjects.Sprite {
       delay: 3000,
       duration: 500,
     });
+  }
+
+  setAlignment(alignment) {
+    if (this.playerData) this.playerData.alignment = alignment;
+    const color = alignment === 'criminal' ? '#ff4444' : '#ffffff';
+    this.nameText.setColor(color);
   }
 
   showMeditate() {
@@ -444,13 +451,14 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this.nameText.setPosition(px, py - h / 2 - 6);
 
     const barY = py + h / 2 + 4;
-    this.hpBarBg.setPosition(px, barY);
-    this.hpBar.clear();
     const ratio = this.playerData.hp && this.playerData.maxHp
       ? Math.max(0, this.playerData.hp / this.playerData.maxHp) : 1;
+    this.hpBarBg.setPosition(px - PLAYER_W / 2, barY);
+    this.hpBar.clear();
+    this.hpBar.setPosition(px - PLAYER_W / 2, barY);
     const barColor = ratio > 0.5 ? 0x44cc44 : ratio > 0.25 ? 0xcccc44 : 0xcc4444;
     this.hpBar.fillStyle(barColor, 1);
-    this.hpBar.fillRect(px - PLAYER_W / 2, barY, PLAYER_W * ratio, 3);
+    this.hpBar.fillRect(0, 0, PLAYER_W * ratio, 3);
 
     this.bubbleText.setPosition(px, py - h / 2 - 14);
 
