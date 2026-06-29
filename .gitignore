@@ -2,3 +2,4 @@ node_modules/
 dist/
 .env
 AGENTS.md
+server-output.log
