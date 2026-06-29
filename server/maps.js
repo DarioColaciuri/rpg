@@ -1,133 +1,98 @@
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const MAPS_DIR = join(__dirname, '..', 'client', 'public', 'maps');
-
 export const TILE_SIZE = 32;
 export const TILE_AIR = 0;
 export const TILE_SOLID = 1;
-export const TILE_PLATFORM = 2;
-export const TILE_THIN_PLATFORM = 3;
-export const MAP_COLS = 100;
-export const MAP_ROWS = 60;
-const PLAYER_H = 64;
+export const MAP_COLS = 30;
+export const MAP_ROWS = 20;
 
-function typeToTileValue(type) {
-  switch (type) {
-    case 'solid': return TILE_SOLID;
-    case 'platform': return TILE_PLATFORM;
-    case 'thin_platform': return TILE_THIN_PLATFORM;
-    default: return TILE_AIR;
+function buildCityTiles() {
+  const W = MAP_COLS;
+  const H = MAP_ROWS;
+  const t = Array.from({ length: H }, () => Array(W).fill(TILE_AIR));
+
+  for (let x = 0; x < W; x++) {
+    t[0][x] = TILE_SOLID;
+    t[H - 1][x] = TILE_SOLID;
   }
+  for (let y = 0; y < H; y++) {
+    t[y][0] = TILE_SOLID;
+  }
+
+  // buildings
+  for (let x = 2; x <= 5; x++) { for (let y = 2; y <= 5; y++) t[y][x] = TILE_SOLID; }
+  for (let x = 2; x <= 5; x++) { for (let y = 8; y <= 11; y++) t[y][x] = TILE_SOLID; }
+
+  for (let x = 9; x <= 13; x++) { for (let y = 3; y <= 6; y++) t[y][x] = TILE_SOLID; }
+
+  for (let x = 17; x <= 20; x++) { for (let y = 2; y <= 5; y++) t[y][x] = TILE_SOLID; }
+  for (let x = 17; x <= 20; x++) { for (let y = 9; y <= 12; y++) t[y][x] = TILE_SOLID; }
+
+  for (let x = 24; x <= 27; x++) { for (let y = 4; y <= 8; y++) t[y][x] = TILE_SOLID; }
+
+  // fountain in center
+  t[10][14] = TILE_SOLID;
+  t[10][15] = TILE_SOLID;
+  t[9][14] = TILE_SOLID;
+  t[9][15] = TILE_SOLID;
+
+  return t;
 }
 
-function parseTsxTileTypes(tsxRaw) {
-  const tileMap = new Map();
-  const tileRegex = /<tile id="(\d+)"[^>]*>([\s\S]*?)<\/tile>/g;
-  let match;
-  while ((match = tileRegex.exec(tsxRaw)) !== null) {
-    const id = parseInt(match[1], 10);
-    const inner = match[2];
-    const typeMatch = inner.match(/<property name="type" value="([^"]+)"/);
-    if (typeMatch) {
-      tileMap.set(id, typeToTileValue(typeMatch[1]));
+function buildForestTiles() {
+  const W = MAP_COLS;
+  const H = MAP_ROWS;
+  const t = Array.from({ length: H }, () => Array(W).fill(TILE_AIR));
+
+  for (let x = 0; x < W; x++) {
+    t[0][x] = TILE_SOLID;
+    t[H - 1][x] = TILE_SOLID;
+  }
+  for (let y = 0; y < H; y++) {
+    t[y][W - 1] = TILE_SOLID;
+  }
+
+  // tree clusters
+  const trees = [
+    [3, 3], [4, 3], [3, 4],
+    [7, 7], [7, 8], [8, 7],
+    [12, 4], [13, 4], [12, 5], [13, 5],
+    [18, 10], [18, 11], [19, 10],
+    [22, 6], [23, 6], [22, 7], [23, 7],
+    [26, 13], [27, 13], [26, 14],
+    [5, 14], [5, 15], [6, 14],
+    [14, 15], [15, 15], [14, 16], [15, 16], [16, 15],
+    [21, 3], [21, 4],
+  ];
+  for (const [tx, ty] of trees) {
+    if (ty >= 0 && ty < H && tx >= 0 && tx < W) {
+      t[ty][tx] = TILE_SOLID;
     }
   }
-  return tileMap;
+
+  // rock formations
+  t[16][9] = TILE_SOLID;
+  t[16][10] = TILE_SOLID;
+
+  return t;
 }
 
-function buildGidTypeMap(json, mapDir) {
-  const gidMap = new Map();
-  for (const ts of json.tilesets) {
-    const firstgid = ts.firstgid;
-    if (ts.tiles) {
-      for (const t of ts.tiles) {
-        const gid = firstgid + t.id;
-        const type = t.properties?.find(p => p.name === 'type')?.value || 'air';
-        gidMap.set(gid, typeToTileValue(type));
-      }
-    } else if (ts.source) {
-      try {
-        const tsxPath = join(mapDir, ts.source);
-        const tsxRaw = readFileSync(tsxPath, 'utf8');
-        const tsxMap = parseTsxTileTypes(tsxRaw);
-        for (const [localId, tileType] of tsxMap) {
-          gidMap.set(firstgid + localId, tileType);
-        }
-      } catch (err) {
-        console.error(`Failed to parse ${ts.source}:`, err.message);
-      }
-    }
-  }
-  return gidMap;
+function buildMap(name, safe, spawnTx, spawnTy, tiles) {
+  return {
+    name,
+    safe,
+    width: MAP_COLS,
+    height: MAP_ROWS,
+    spawn: { x: spawnTx, y: spawnTy },
+    tiles,
+    transitions: [],
+  };
 }
 
-function loadTiledMap(mapName) {
-  try {
-    const raw = readFileSync(join(MAPS_DIR, `${mapName}.json`), 'utf8');
-    const json = JSON.parse(raw);
-
-    const gidTypeMap = buildGidTypeMap(json, MAPS_DIR);
-
-    const w = json.width;
-    const h = json.height;
-    const tiles = Array.from({ length: h }, () => Array(w).fill(TILE_AIR));
-    const groundLayer = json.layers.find(l => l.type === 'tilelayer');
-    if (groundLayer) {
-      for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-          const gid = groundLayer.data[y * w + x];
-          tiles[y][x] = gidTypeMap.get(gid) ?? TILE_AIR;
-        }
-      }
-    }
-
-    const props = {};
-    if (json.properties) {
-      for (const p of json.properties) {
-        props[p.name] = p.value;
-      }
-    }
-
-    const objectsLayer = json.layers.find(l => l.type === 'objectgroup');
-    const transitions = [];
-    if (objectsLayer) {
-      for (const obj of objectsLayer.objects) {
-        if (obj.type === 'transition' && obj.properties) {
-          const target = obj.properties.find(p => p.name === 'target');
-          if (target) {
-            transitions.push({
-              target: target.value,
-              x: obj.x,
-              y: obj.y,
-              width: obj.width,
-              height: obj.height,
-            });
-          }
-        }
-      }
-    }
-
-    return {
-      width: w,
-      height: h,
-      name: props.name || mapName,
-      safe: props.safe ?? true,
-      spawn: { x: props.spawnX ?? 2, y: props.spawnY ?? 25 },
-      tiles,
-      transitions,
-    };
-  } catch (err) {
-    console.error(`Failed to load map ${mapName}:`, err.message);
-    return null;
-  }
-}
+const cityTiles = buildCityTiles();
+const forestTiles = buildForestTiles();
 
 export const MAPS = {
-  city: loadTiledMap('city'),
-  forest: loadTiledMap('forest'),
+  city: buildMap('city', true, 3, 18, cityTiles),
+  forest: buildMap('forest', false, 28, 10, forestTiles),
 };
 
 export function isWalkable(mapName, x, y) {
@@ -164,36 +129,20 @@ export function checkMapTransition(mapName, px, py) {
   const map = MAPS[mapName];
   if (!map) return null;
 
-  for (const t of map.transitions) {
-    if (px >= t.x && px <= t.x + t.width && py >= t.y && py <= t.y + t.height) {
-      const targetMap = MAPS[t.target];
-      if (!targetMap) continue;
-      const spawnX = t.target === 'city'
-        ? (MAP_COLS - 1) * TILE_SIZE
-        : TILE_SIZE;
-      const spawnY = findGroundY(t.target, spawnX);
-      return { map: t.target, spawnX, spawnY };
-    }
+  const mapRight = map.width * TILE_SIZE;
+  const mapLeft = 0;
+
+  if (mapName === 'city' && px >= mapRight) {
+    const targetPy = py;
+    const targetPx = TILE_SIZE;
+    return { map: 'forest', spawnX: targetPx, spawnY: targetPy };
   }
 
-  if (mapName === 'city' && px > (MAP_COLS - 1) * TILE_SIZE) {
-    return { map: 'forest', spawnX: TILE_SIZE, spawnY: findGroundY('forest', TILE_SIZE) };
+  if (mapName === 'forest' && px <= mapLeft) {
+    const targetPy = py;
+    const targetPx = MAPS.city.width * TILE_SIZE - TILE_SIZE;
+    return { map: 'city', spawnX: targetPx, spawnY: targetPy };
   }
-  if (mapName === 'forest' && px < TILE_SIZE) {
-    return { map: 'city', spawnX: (MAP_COLS - 1) * TILE_SIZE, spawnY: findGroundY('city', (MAP_COLS - 1) * TILE_SIZE) };
-  }
+
   return null;
-}
-
-export function findGroundY(mapName, px) {
-  const map = MAPS[mapName];
-  if (!map) return 800;
-  const tx = Math.floor(px / TILE_SIZE);
-  if (tx < 0 || tx >= map.width) return 800;
-  for (let y = 1; y < map.height; y++) {
-    if (map.tiles[y][tx] === TILE_SOLID && map.tiles[y - 1][tx] !== TILE_SOLID) {
-      return y * TILE_SIZE - PLAYER_H / 2;
-    }
-  }
-  return 800;
 }

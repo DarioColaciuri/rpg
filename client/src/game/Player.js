@@ -1,22 +1,17 @@
 import Phaser from 'phaser';
 
 const PLAYER_W = 32;
-const PLAYER_H = 64;
+const PLAYER_H = 32;
 const DISPLAY_W = 32;
-const DISPLAY_H = 64;
-const CROUCH_BODY_H = 45;
+const DISPLAY_H = 32;
 const MOVE_SPEED = 200;
 const RUN_SPEED = 400;
-const JUMP_VEL = -420;
-const DRAG_X = 800;
-const MAX_VEL_Y = 800;
-const DROP_THROUGH_MS = 250;
 
 export default class Player extends Phaser.GameObjects.Sprite {
   constructor(scene, x, y, playerData, hasPhysics = false) {
     const race = (playerData.race || 'human').toLowerCase();
     const sex = (playerData.sex || 'male').toLowerCase();
-    const direction = 'right';
+    const direction = 'down';
     const spriteKey = `${race}_${sex}_walk_${direction}`;
 
     super(scene, x, y, spriteKey);
@@ -27,9 +22,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this.playerId = playerData.id;
     this.playerData = playerData;
     this.hasPhysics = hasPhysics;
-    this.isCrouching = false;
     this.isRunning = false;
-    this.droppingThrough = false;
     this.race = race;
     this.sex = sex;
     this.direction = direction;
@@ -37,22 +30,10 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this.animState = 'walk';
     this._targetX = null;
     this._targetY = null;
-    this._lastHpRatio = -1;
-
-    this.headVariant = playerData.headVariant || 1;
 
     this._visual = scene.add.sprite(x, y, spriteKey);
     this._visual.setDepth(5);
     this._visual.setDisplaySize(DISPLAY_W, DISPLAY_H);
-
-    const headStaticKey = `${race}_${sex}_head_static_${direction}_${this.headVariant}`;
-    if (scene.textures.exists(headStaticKey)) {
-      this._head = scene.add.sprite(x, y, headStaticKey);
-      this._head.setDepth(6);
-      this._head.setDisplaySize(DISPLAY_W, DISPLAY_H);
-    } else {
-      this._head = null;
-    }
 
     this.confirmedPx = playerData.px ?? x;
     this.confirmedPy = playerData.py ?? y;
@@ -60,21 +41,13 @@ export default class Player extends Phaser.GameObjects.Sprite {
     if (hasPhysics) {
       scene.physics.add.existing(this);
       this.body.setSize(PLAYER_W, PLAYER_H);
-      this.body.setMaxVelocityX(600);
-      this.body.setMaxVelocityY(MAX_VEL_Y);
-      this.body.setDragX(DRAG_X);
-      this.body.setAllowGravity(true);
+      this.body.setMaxVelocityX(RUN_SPEED + 200);
+      this.body.setMaxVelocityY(RUN_SPEED + 200);
+      this.body.setDragX(800);
+      this.body.setDragY(800);
+      this.body.setAllowGravity(false);
       this.body.setCollideWorldBounds(false);
       this.body.updateFromGameObject();
-
-      this._hitboxGfx = scene.add.graphics().setDepth(15);
-      this._hitboxLabel = scene.add.text(x, y, '', {
-        fontSize: '8px',
-        fontFamily: 'monospace',
-        color: '#ff4444',
-        stroke: '#000000',
-        strokeThickness: 2,
-      }).setOrigin(0, 1).setDepth(16);
     } else {
       scene.physics.add.existing(this, false);
       this.body.setSize(PLAYER_W, PLAYER_H);
@@ -126,6 +99,24 @@ export default class Player extends Phaser.GameObjects.Sprite {
   get y() { return super.y; }
   set y(v) { super.y = v; }
 
+  moveUp() {
+    if (this.hasPhysics) {
+      const speed = this.isRunning ? RUN_SPEED : MOVE_SPEED;
+      this.body.setVelocityY(-speed);
+      this.direction = 'up';
+      this.lastDirection = 'up';
+    }
+  }
+
+  moveDown() {
+    if (this.hasPhysics) {
+      const speed = this.isRunning ? RUN_SPEED : MOVE_SPEED;
+      this.body.setVelocityY(speed);
+      this.direction = 'down';
+      this.lastDirection = 'down';
+    }
+  }
+
   moveLeft() {
     if (this.hasPhysics) {
       const speed = this.isRunning ? RUN_SPEED : MOVE_SPEED;
@@ -148,84 +139,20 @@ export default class Player extends Phaser.GameObjects.Sprite {
     if (this.hasPhysics) this.body.setVelocityX(0);
   }
 
+  stopY() {
+    if (this.hasPhysics) this.body.setVelocityY(0);
+  }
+
   bringToTop() {
     this.setDepth(10);
     if (this._visual) this._visual.setDepth(10);
-    if (this._head) this._head.setDepth(11);
-  }
-
-  jump() {
-    if (!this.hasPhysics) return;
-    if (this.body.touching.down || this.body.blocked.down) {
-      this.body.setVelocityY(JUMP_VEL);
-    }
-  }
-
-  dropThrough() {
-    if (!this.body.touching.down && !this.body.blocked.down) return;
-    this.droppingThrough = true;
-    this.y += 2;
-    this.body.setVelocityY(150);
-    if (this.scene.currentLayer) {
-      this.body.checkCollision.down = false;
-      this.scene.time.delayedCall(DROP_THROUGH_MS, () => {
-        this.droppingThrough = false;
-        this.body.checkCollision.down = true;
-      });
-    } else {
-      this.scene.time.delayedCall(DROP_THROUGH_MS, () => { this.droppingThrough = false; });
-    }
-  }
-
-  crouch() {
-    if (this.isCrouching) return;
-    this.isCrouching = true;
-  }
-
-  standUp() {
-    if (!this.isCrouching) return;
-    this.isCrouching = false;
   }
 
   updateAnimation() {
     if (!this.hasPhysics) return;
     if (!this._visual.anims) return;
 
-    const isMoving = this.body && Math.abs(this.body.velocity.x) > 0;
-
-    if (this.isCrouching) {
-      if (isMoving) {
-        const crouchMoveKey = `${this.race}_${this.sex}_crouch_move_${this.direction}`;
-        if (this.scene.anims.exists(crouchMoveKey)) {
-          this.animState = 'walk';
-          if (!this._visual.anims.currentAnim || this._visual.anims.currentAnim.key !== crouchMoveKey) {
-            this._visual.play(crouchMoveKey);
-          }
-        }
-      } else {
-        const crouchStaticKey = `${this.race}_${this.sex}_crouch_static_${this.lastDirection}`;
-        if (this.scene.textures.exists(crouchStaticKey)) {
-          this.animState = 'idle';
-          this._visual.anims.stop();
-          this._visual.anims.currentAnim = null;
-          this._visual.setTexture(crouchStaticKey);
-        }
-      }
-
-      if (this._head) {
-        const headDir = isMoving ? this.direction : this.lastDirection;
-        const headKey = `${this.race}_${this.sex}_head_static_${headDir}_${this.headVariant}`;
-        if (this.scene.textures.exists(headKey)) {
-          this._head.anims.stop();
-          this._head.anims.currentAnim = null;
-          this._head.setTexture(headKey);
-          this._head.setVisible(true);
-        } else {
-          this._head.setVisible(false);
-        }
-      }
-      return;
-    }
+    const isMoving = this.body && (Math.abs(this.body.velocity.x) > 10 || Math.abs(this.body.velocity.y) > 10);
 
     if (isMoving) {
       const key = `${this.race}_${this.sex}_walk_${this.direction}`;
@@ -239,30 +166,6 @@ export default class Player extends Phaser.GameObjects.Sprite {
         this.animState = 'idle';
         if (!this._visual.anims.currentAnim || this._visual.anims.currentAnim.key !== idleKey) {
           this._visual.play(idleKey);
-        }
-      }
-    }
-
-    if (this._head) {
-      if (isMoving) {
-        const headKey = `${this.race}_${this.sex}_head_static_${this.direction}_${this.headVariant}`;
-        if (this.scene.textures.exists(headKey)) {
-          this._head.anims.stop();
-          this._head.anims.currentAnim = null;
-          this._head.setTexture(headKey);
-          this._head.setVisible(true);
-        } else {
-          this._head.setVisible(false);
-        }
-      } else {
-        const headIdleKey = `${this.race}_${this.sex}_head_idle_${this.lastDirection}_${this.headVariant}`;
-        if (this.scene.anims.exists(headIdleKey)) {
-          if (!this._head.anims.currentAnim || this._head.anims.currentAnim.key !== headIdleKey) {
-            this._head.play(headIdleKey);
-          }
-          this._head.setVisible(true);
-        } else {
-          this._head.setVisible(false);
         }
       }
     }
@@ -290,7 +193,7 @@ export default class Player extends Phaser.GameObjects.Sprite {
     }
   }
 
-  updateRemoteState(direction, animState, isCrouching) {
+  updateRemoteState(direction, animState) {
     if (!this._visual) return;
 
     const hasDir = !!direction;
@@ -300,80 +203,20 @@ export default class Player extends Phaser.GameObjects.Sprite {
       this.animState = animState || 'walk';
     }
 
-    const newCrouch = isCrouching ?? false;
-    if (newCrouch !== this.isCrouching) {
-      this.isCrouching = newCrouch;
-    }
-
     if (!hasDir) return;
 
-    if (this.isCrouching) {
-      if (this.animState === 'walk') {
-        const crouchMoveKey = `${this.race}_${this.sex}_crouch_move_${this.direction}`;
-        if (this.scene.anims.exists(crouchMoveKey)) {
-          if (!this._visual.anims.currentAnim || this._visual.anims.currentAnim.key !== crouchMoveKey) {
-            this._visual.play(crouchMoveKey);
-          }
-        }
-      } else {
-        const crouchStaticKey = `${this.race}_${this.sex}_crouch_static_${this.lastDirection}`;
-        if (this.scene.textures.exists(crouchStaticKey)) {
-          this._visual.anims.stop();
-          this._visual.anims.currentAnim = null;
-          this._visual.setTexture(crouchStaticKey);
-        }
-      }
-
-      if (this._head) {
-        const headDir = this.animState === 'walk' ? this.direction : this.lastDirection;
-        const headKey = `${this.race}_${this.sex}_head_static_${headDir}_${this.headVariant}`;
-        if (this.scene.textures.exists(headKey)) {
-          this._head.anims.stop();
-          this._head.anims.currentAnim = null;
-          this._head.setTexture(headKey);
-          this._head.setVisible(true);
-        } else {
-          this._head.setVisible(false);
-        }
-      }
-    } else {
-      let key;
-      if (animState === 'idle') {
-        key = `${this.race}_${this.sex}_idle_${direction}`;
-        if (!this.scene.anims.exists(key)) {
-          key = `${this.race}_${this.sex}_walk_${direction}`;
-        }
-      } else {
+    let key;
+    if (animState === 'idle') {
+      key = `${this.race}_${this.sex}_idle_${direction}`;
+      if (!this.scene.anims.exists(key)) {
         key = `${this.race}_${this.sex}_walk_${direction}`;
       }
+    } else {
+      key = `${this.race}_${this.sex}_walk_${direction}`;
+    }
 
-      if (!this._visual.anims.currentAnim || this._visual.anims.currentAnim.key !== key) {
-        this._visual.play(key);
-      }
-
-      if (this._head) {
-        if (animState === 'idle') {
-          const headIdleKey = `${this.race}_${this.sex}_head_idle_${direction}_${this.headVariant}`;
-          if (this.scene.anims.exists(headIdleKey)) {
-            if (!this._head.anims.currentAnim || this._head.anims.currentAnim.key !== headIdleKey) {
-              this._head.play(headIdleKey);
-            }
-            this._head.setVisible(true);
-          } else {
-            this._head.setVisible(false);
-          }
-        } else {
-          const headKey = `${this.race}_${this.sex}_head_static_${direction}_${this.headVariant}`;
-          if (this.scene.textures.exists(headKey)) {
-            this._head.anims.stop();
-            this._head.anims.currentAnim = null;
-            this._head.setTexture(headKey);
-            this._head.setVisible(true);
-          } else {
-            this._head.setVisible(false);
-          }
-        }
-      }
+    if (!this._visual.anims.currentAnim || this._visual.anims.currentAnim.key !== key) {
+      this._visual.play(key);
     }
   }
 
@@ -412,9 +255,9 @@ export default class Player extends Phaser.GameObjects.Sprite {
     }
     this._meditateGfx.clear();
     this._meditateGfx.fillStyle(0x2244cc, 0.35);
-    this._meditateGfx.fillRect(-16, -32, 32, 64);
+    this._meditateGfx.fillRect(-16, -16, 32, 32);
     this._meditateGfx.lineStyle(1, 0x4466ff, 0.6);
-    this._meditateGfx.strokeRect(-16, -32, 32, 64);
+    this._meditateGfx.strokeRect(-16, -16, 32, 32);
     this._meditateGfx.setDepth(10);
     this._meditateGfx.setPosition(this.x, this.y);
     this._meditateGfx.setVisible(true);
@@ -439,10 +282,6 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
     this._visual.x = this.x;
     this._visual.y = this.y;
-    if (this._head) {
-      this._head.x = this.x;
-      this._head.y = this.isCrouching ? this.y + (PLAYER_H - CROUCH_BODY_H) : this.y;
-    }
 
     const px = this.x;
     const py = this.y;
@@ -469,30 +308,12 @@ export default class Player extends Phaser.GameObjects.Sprite {
     if (this._meditateGfx && this._meditateGfx.visible) {
       this._meditateGfx.setPosition(this.x, this.y);
     }
-
-    if (this._hitboxGfx && this.hasPhysics && this.body) {
-      this._hitboxGfx.clear();
-      this._hitboxGfx.lineStyle(1, 0xff0000, 0.8);
-      this._hitboxGfx.strokeRect(
-        this.body.x, this.body.y,
-        this.body.width, this.body.height
-      );
-
-      this._hitboxLabel.setPosition(
-        this.body.x + this.body.width + 3,
-        this.body.y + this.body.height
-      );
-      this._hitboxLabel.setText(`${this.body.width.toFixed(0)}x${this.body.height.toFixed(0)}`);
-    }
   }
 
   destroy() {
     if (this._visual) this._visual.destroy();
-    if (this._head) this._head.destroy();
     if (this._deathGfx) this._deathGfx.destroy();
     if (this._meditateGfx) this._meditateGfx.destroy();
-    if (this._hitboxGfx) this._hitboxGfx.destroy();
-    if (this._hitboxLabel) this._hitboxLabel.destroy();
     if (this.hasPhysics && this.body) {
       this.body.enable = false;
     }

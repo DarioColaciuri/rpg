@@ -43,7 +43,7 @@ export default function GameScreen({ character, session, onLeave }) {
       banner: false,
       physics: {
         default: 'arcade',
-        arcade: { gravity: { y: 600 }, debug: false },
+        arcade: { gravity: { y: 0 }, debug: false },
       },
       scale: {
         mode: Phaser.Scale.FIT,

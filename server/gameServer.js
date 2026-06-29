@@ -1,4 +1,4 @@
-import { MAPS, TILE_SIZE, isPixelWalkable, findGroundY } from './maps.js';
+import { MAPS, TILE_SIZE, MAP_COLS, MAP_ROWS, isPixelWalkable, checkMapTransition } from './maps.js';
 
 const BASE_STATS = {
   WARRIOR: { hp: 120, mana: 10, stamina: 20 },
@@ -38,57 +38,12 @@ const RACE_HEIGHT = {
 };
 
 const XP_TABLE = [
-  0,        // nivel 0 (no existe)
-  500,      // nivel 1 → 2
-  750,      // nivel 2 → 3
-  960,      // nivel 3 → 4
-  1450,     // nivel 4 → 5
-  2050,
-  2820,
-  3700,
-  5950,
-  8250,
-  11533,
-  14993,
-  19491,
-  25338,
-  32939,
-  42821,
-  55668,
-  72368,
-  94078,
-  122302,
-  158992,
-  206690,
-  268697,
-  376176,
-  526646,
-  737305,
-  884765,
-  1061719,
-  1274062,
-  1528875,
-  1834650,
-  2201580,
-  2641896,
-  3170275,
-  3804330,
-  4565196,
-  6091279,
-  7871705,
-  10008216,
-  14637325,
-  20830987,
-  31246480,
-  46869720,
-  69554580,
-  104706870,
-  157435305,
-  236527957,
-  336527957,
-  436527957,
-  636527957,
-  0,        // nivel 50 (max)
+  0, 500, 750, 960, 1450, 2050, 2820, 3700, 5950, 8250,
+  11533, 14993, 19491, 25338, 32939, 42821, 55668, 72368, 94078, 122302,
+  158992, 206690, 268697, 376176, 526646, 737305, 884765, 1061719, 1274062, 1528875,
+  1834650, 2201580, 2641896, 3170275, 3804330, 4565196, 6091279, 7871705, 10008216, 14637325,
+  20830987, 31246480, 46869720, 69554580, 104706870, 157435305, 236527957, 336527957, 436527957, 636527957,
+  0,
 ];
 
 const CLASS_GROWTH = {
@@ -124,8 +79,7 @@ const SPELL_DEFS = {
 };
 
 const PLAYER_W = 32;
-const PLAYER_H = 64;
-const CROUCH_BODY_H = 45;
+const PLAYER_H = 32;
 const MOVE_COOLDOWN = 80;
 const MAX_MOVE_DIST = 80;
 
@@ -163,6 +117,8 @@ const ENEMY_SPAWNS = {
 const ENEMY_ATTACK_COOLDOWN = 2000;
 const ENEMY_TICK = 50;
 const ENEMY_BROADCAST = 50;
+const ENEMY_W = 32;
+const ENEMY_H = 32;
 
 const ITEM_DEFS = {
   apple: { name: 'Apple', stat: 'food', amount: 10 },
@@ -183,7 +139,7 @@ const PICKUP_RANGE = 48;
 
 const DEFAULT_GROUND_ITEMS = {
   city: [
-    { px: 850, py: 790, itemType: 'gold_pile', amount: 99999 },
+    { px: 400, py: 500, itemType: 'gold_pile', amount: 99999 },
   ],
   forest: [],
 };
@@ -212,7 +168,7 @@ const SELL_PRICES = {
 
 const NPCS = {
   city: [
-    { id: 'merchant_city', name: 'Merchant', px: 800, py: 800, color: 0x44cc44, shop: true },
+    { id: 'merchant_city', name: 'Merchant', px: 6 * TILE_SIZE + TILE_SIZE / 2, py: 18 * TILE_SIZE + TILE_SIZE / 2, color: 0x44cc44, shop: true },
   ],
 };
 
@@ -352,26 +308,22 @@ export class GameServer {
     let px, py;
     for (let attempt = 0; attempt < 50; attempt++) {
       const tx = 2 + Math.floor(Math.random() * (map.width - 4));
-      let groundRow = map.height;
-      for (let r = 1; r < map.height; r++) {
-        if (map.tiles[r][tx] === 1 && map.tiles[r - 1][tx] !== 1) { groundRow = r; break; }
-      }
-      if (groundRow >= map.height) continue;
+      const ty = 2 + Math.floor(Math.random() * (map.height - 4));
       px = tx * TILE_SIZE + TILE_SIZE / 2;
-      py = (groundRow - 1) * TILE_SIZE + TILE_SIZE / 2;
-      if (py > 100 && isPixelWalkable(mapName, px, py, 32, 32) && !this.isPixelOccupied(mapName, px, py, 32, 32)) {
+      py = ty * TILE_SIZE + TILE_SIZE / 2;
+      if (isPixelWalkable(mapName, px, py, ENEMY_W, ENEMY_H) && !this.isPixelOccupied(mapName, px, py, ENEMY_W, ENEMY_H)) {
         break;
       }
       px = null; py = null;
     }
-    if (!px) { px = 200; py = 750; }
+    if (!px) { px = 200; py = 320; }
 
+    const dirs = ['up', 'down', 'left', 'right'];
     const id = `enemy_${this._nextEnemyId++}`;
     this.enemies.set(id, {
       id, map: mapName, type, px, py,
       hp: enemyDef.hp, maxHp: enemyDef.hp,
-      direction: Math.random() > 0.5 ? 'right' : 'left',
-      velX: 0, velY: 0, grounded: true,
+      direction: dirs[Math.floor(Math.random() * dirs.length)],
       attackCooldown: 0,
       walkTimer: Math.random() * 2000,
       wallTimer: 0,
@@ -446,7 +398,7 @@ export class GameServer {
 
     if (nearestPlayer && enemy.wallTimer <= 0) {
       const dx = nearestPlayer.px - enemy.px;
-      enemy.direction = dx > 0 ? 'right' : 'left';
+      const dy = nearestPlayer.py - enemy.py;
 
       const eTx = Math.floor(enemy.px / TILE_SIZE);
       const eTy = Math.floor(enemy.py / TILE_SIZE);
@@ -472,79 +424,109 @@ export class GameServer {
           });
         }
       } else {
-        const speed = enemy.direction === 'right' ? def.speed : -def.speed;
-        enemy.velX = speed;
+        // move toward player
+        if (Math.abs(dx) > Math.abs(dy)) {
+          enemy.direction = dx > 0 ? 'right' : 'left';
+        } else {
+          enemy.direction = dy > 0 ? 'down' : 'up';
+        }
+        let mvx = 0, mvy = 0;
+        switch (enemy.direction) {
+          case 'right': mvx = def.speed; break;
+          case 'left': mvx = -def.speed; break;
+          case 'down': mvy = def.speed; break;
+          case 'up': mvy = -def.speed; break;
+        }
+        const newX = enemy.px + mvx * delta;
+        const newY = enemy.py + mvy * delta;
+        this.applyEnemyMovement(enemy, newX, newY);
       }
     } else {
       enemy.walkTimer -= deltaMs;
       if (enemy.walkTimer <= 0) {
         enemy.walkTimer = 1500 + Math.random() * 3000;
-        enemy.direction = Math.random() > 0.5 ? 'right' : 'left';
-        if (enemy.grounded && Math.random() > 0.5) enemy.velY = -210;
+        const dirs = ['up', 'down', 'left', 'right'];
+        enemy.direction = dirs[Math.floor(Math.random() * dirs.length)];
       }
-      const speed = enemy.direction === 'right' ? def.speed : -def.speed;
-      enemy.velX = speed;
+      let mvx = 0, mvy = 0;
+      switch (enemy.direction) {
+        case 'right': mvx = def.speed; break;
+        case 'left': mvx = -def.speed; break;
+        case 'down': mvy = def.speed; break;
+        case 'up': mvy = -def.speed; break;
+      }
+      const newX = enemy.px + mvx * delta;
+      const newY = enemy.py + mvy * delta;
+      this.applyEnemyMovement(enemy, newX, newY);
     }
+  }
 
-    enemy.velY += 600 * delta;
-    const newX = enemy.px + (enemy.velX || 0) * delta;
-    const newY = enemy.py + enemy.velY * delta;
-
-    const mapData = MAPS[enemy.map];
-    const mapW = mapData.width * TILE_SIZE;
+  applyEnemyMovement(enemy, newX, newY) {
+    const mapW = MAP_COLS * TILE_SIZE;
+    const mapH = MAP_ROWS * TILE_SIZE;
     const clampX = Math.max(16, Math.min(mapW - 16, newX));
-    const clampY = Math.max(16, Math.min(mapData.height * TILE_SIZE - 16, newY));
+    const clampY = Math.max(16, Math.min(mapH - 16, newY));
 
     if (newX <= 16 || newX >= mapW - 16) {
-      enemy.direction = enemy.direction === 'right' ? 'left' : 'right';
-      enemy.velX = 0;
+      const dirs = ['up', 'down', 'left', 'right'];
+      enemy.direction = dirs[Math.floor(Math.random() * dirs.length)];
+      enemy.wallTimer = 500;
+      return;
+    }
+    if (newY <= 16 || newY >= mapH - 16) {
+      const dirs = ['up', 'down', 'left', 'right'];
+      enemy.direction = dirs[Math.floor(Math.random() * dirs.length)];
+      enemy.wallTimer = 500;
+      return;
     }
 
-    let blockedX = false;
-    if (!isPixelWalkable(enemy.map, clampX, enemy.py, 32, 32)) {
-      enemy.direction = enemy.direction === 'right' ? 'left' : 'right';
-      enemy.velX = 0;
+    let blocked = false;
+    if (!isPixelWalkable(enemy.map, clampX, enemy.py, ENEMY_W, ENEMY_H)) {
+      const dirs = ['up', 'down', 'left', 'right'];
+      enemy.direction = dirs[Math.floor(Math.random() * dirs.length)];
       enemy.wallTimer = 2000;
-      blockedX = true;
+      blocked = true;
     }
+    if (!isPixelWalkable(enemy.map, enemy.px, clampY, ENEMY_W, ENEMY_H)) {
+      const dirs = ['up', 'down', 'left', 'right'];
+      enemy.direction = dirs[Math.floor(Math.random() * dirs.length)];
+      enemy.wallTimer = 2000;
+      blocked = true;
+    }
+
+    // check player collision
     for (const [, p] of this.players) {
       if (p.map !== enemy.map || p.dead) continue;
-      if (Math.abs(p.px - clampX) < 32 && Math.abs(p.py - enemy.py) < 32) {
-        enemy.direction = enemy.direction === 'right' ? 'left' : 'right';
-        enemy.velX = 0;
-        blockedX = true;
+      if (Math.abs(p.px - clampX) < ENEMY_W && Math.abs(p.py - enemy.py) < ENEMY_H) {
+        enemy.direction = 'up';
+        blocked = true;
+        break;
+      }
+      if (Math.abs(p.px - enemy.px) < ENEMY_W && Math.abs(p.py - clampY) < ENEMY_H) {
+        enemy.direction = 'left';
+        blocked = true;
         break;
       }
     }
-    if (!blockedX) {
+
+    // check enemy collision
+    if (!blocked) {
       for (const [, other] of this.enemies) {
         if (other.id === enemy.id || other.map !== enemy.map) continue;
-        if (Math.abs(other.px - clampX) < 28 && Math.abs(other.py - enemy.py) < 28) {
-          enemy.direction = enemy.direction === 'right' ? 'left' : 'right';
-          enemy.velX = 0;
-          blockedX = true;
+        if (Math.abs(other.px - clampX) < ENEMY_W - 4 && Math.abs(other.py - enemy.py) < ENEMY_H - 4) {
+          blocked = true;
+          break;
+        }
+        if (Math.abs(other.px - enemy.px) < ENEMY_W - 4 && Math.abs(other.py - clampY) < ENEMY_H - 4) {
+          blocked = true;
           break;
         }
       }
     }
-    if (!blockedX) enemy.px = clampX;
 
-    if (isPixelWalkable(enemy.map, enemy.px, clampY, 32, 32)) {
+    if (!blocked) {
+      enemy.px = clampX;
       enemy.py = clampY;
-      enemy.grounded = false;
-    } else {
-      if (enemy.velY > 0) {
-        enemy.grounded = true;
-        enemy.velY = 0;
-        enemy.py = Math.floor(enemy.py / TILE_SIZE) * TILE_SIZE + TILE_SIZE / 2;
-      } else {
-        enemy.velY = 0;
-      }
-    }
-
-    if (!isPixelWalkable(enemy.map, enemy.px, enemy.py, 32, 32)) {
-      enemy.py = enemy.py - enemy.velY * delta;
-      enemy.velY = 0;
     }
   }
 
@@ -595,10 +577,8 @@ export class GameServer {
       maxStamina: player.maxStamina,
       level: player.level,
       xp: player.xp,
-      direction: player.direction ?? 'right',
-      animState: player.animState ?? 'walk',
-      isCrouching: player.isCrouching ?? false,
-      headVariant: player.headVariant ?? 1,
+      direction: player.direction ?? 'down',
+      animState: player.animState ?? 'idle',
       equipment: player.equipment || { weapon: null, clothing: null, helmet: null, shield: null },
       alignment: player.alignment || 'citizen',
     };
@@ -626,7 +606,6 @@ export class GameServer {
       level: player.level,
       xp: player.xp,
       xpNeeded: XP_TABLE[player.level] || 0,
-      headVariant: player.headVariant ?? 1,
       inventory: player.inventory || [],
       equipment: player.equipment || { weapon: null, clothing: null, helmet: null, shield: null },
       skills: player.skills,
@@ -647,11 +626,9 @@ export class GameServer {
 
   findSpawn(mapName) {
     const map = MAPS[mapName];
-    if (!map) return { px: 80, py: 800 };
-    const { x: sx } = map.spawn;
-    const spawnPx = tileCenter(sx);
-    const spawnPy = findGroundY(mapName, spawnPx);
-    return { px: spawnPx, py: spawnPy };
+    if (!map) return { px: 80, py: 320 };
+    const { x: sx, y: sy } = map.spawn;
+    return { px: tileCenter(sx), py: tileCenter(sy) };
   }
 
   addPlayer(ws, character, savedPx = null, savedPy = null, savedMap = null, inventory = []) {
@@ -694,7 +671,6 @@ export class GameServer {
       py: usePy,
       lastMoveTime: 0,
       selectedSpell: null,
-      headVariant: character.head_variant ?? 1,
       inventory: inventory,
       skills: character.skills || {
         combat_arms: 0,
@@ -734,12 +710,6 @@ export class GameServer {
     this.players.delete(playerId);
     this.wsToPlayer.delete(ws);
     return player;
-  }
-
-  getInventory(playerId) {
-    const player = this.players.get(playerId);
-    if (!player) return [];
-    return player.inventory || [];
   }
 
   findFreeGroundSpot(mapName, px, py) {
@@ -1002,7 +972,7 @@ export class GameServer {
     }
   }
 
-  handleMove(ws, px, py, transitionTo, direction, animState, isCrouching) {
+  handleMove(ws, px, py, transitionTo, direction, animState) {
     const playerId = this.wsToPlayer.get(ws);
     if (!playerId) return;
     const player = this.players.get(playerId);
@@ -1010,10 +980,10 @@ export class GameServer {
 
     if (typeof px !== 'number' || typeof py !== 'number') return;
 
-    player.direction = direction ?? player.direction ?? 'right';
-    player.animState = animState || player.animState || 'walk';
-    player.isCrouching = isCrouching ?? player.isCrouching ?? false;
+    player.direction = direction ?? player.direction ?? 'down';
+    player.animState = animState || player.animState || 'idle';
 
+    // map transition
     if (transitionTo && MAPS[transitionTo]) {
       const validTransition =
         (transitionTo === 'forest' && player.map === 'city') ||
@@ -1043,7 +1013,7 @@ export class GameServer {
           stats: this.getStats(player),
           groundItems: this.getGroundItemsOnMap(player.map),
           npcs: this.getNpcsOnMap(player.map),
-      enemies: this.getEnemiesOnMap(player.map),
+          enemies: this.getEnemiesOnMap(player.map),
         });
         this.broadcastToMap(player.map, { type: 'player_joined', player: this.playerData(player) }, ws);
         return;
@@ -1053,28 +1023,23 @@ export class GameServer {
     const now = Date.now();
     if (now - player.lastMoveTime < MOVE_COOLDOWN) return;
 
-    const mapData = MAPS[player.map];
-    if (!mapData) return;
-
-    const mapW = mapData.width * TILE_SIZE;
-    const mapH = mapData.height * TILE_SIZE;
+    const mapW = MAP_COLS * TILE_SIZE;
+    const mapH = MAP_ROWS * TILE_SIZE;
 
     const dx = Math.abs(px - player.px);
     const dy = Math.abs(py - player.py);
     if (dx > MAX_MOVE_DIST || dy > MAX_MOVE_DIST) return;
 
-    const bodyH = player.isCrouching ? CROUCH_BODY_H : PLAYER_H;
-
     if (px - PLAYER_W / 2 < 0 || px + PLAYER_W / 2 > mapW ||
-        py - bodyH / 2 < 0 || py + bodyH / 2 > mapH) {
+        py - PLAYER_H / 2 < 0 || py + PLAYER_H / 2 > mapH) {
       return;
     }
 
-    if (!isPixelWalkable(player.map, px, py, PLAYER_W, bodyH)) return;
+    if (!isPixelWalkable(player.map, px, py, PLAYER_W, PLAYER_H)) return;
 
-    const mapData2 = MAPS[player.map];
-    if (!mapData2 || !mapData2.safe) {
-      if (this.isPixelOccupied(player.map, px, py, PLAYER_W, bodyH, player.id)) return;
+    const map = MAPS[player.map];
+    if (!map || !map.safe) {
+      if (this.isPixelOccupied(player.map, px, py, PLAYER_W, PLAYER_H, player.id)) return;
     }
 
     if (player.meditating) {
@@ -1094,7 +1059,6 @@ export class GameServer {
       py: py,
       direction: player.direction,
       animState: player.animState,
-      isCrouching: player.isCrouching,
     }, ws);
     this.sendTo(ws, {
       type: 'player_moved',
@@ -1103,7 +1067,6 @@ export class GameServer {
       py: py,
       direction: player.direction,
       animState: player.animState,
-      isCrouching: player.isCrouching,
     });
   }
 
@@ -1139,18 +1102,16 @@ export class GameServer {
 
     const aTx = Math.floor(attacker.px / TILE_SIZE);
     const aTy = Math.floor(attacker.py / TILE_SIZE);
-    const facingRight = attacker.direction === 'right';
 
+    // attack enemies in any adjacent tile
     for (const [, e] of this.enemies) {
       if (e.map !== attacker.map) continue;
       const eTx = Math.floor(e.px / TILE_SIZE);
       const eTy = Math.floor(e.py / TILE_SIZE);
       const dx = Math.abs(eTx - aTx);
       const dy = Math.abs(eTy - aTy);
-      const inFront = facingRight ? (eTx > aTx) : (eTx < aTx);
-      if (dx <= 1 && dy <= 1 && inFront) {
+      if (dx <= 1 && dy <= 1) {
         attacker.stamina -= 1;
-        const dmgBefore = e.hp;
         e.hp = Math.max(0, e.hp - damage);
         this.awardEnemyXp(attacker, e, damage);
         this.sendTo(ws, { type: 'stats_update', ...this.getStats(attacker) });
@@ -1168,6 +1129,7 @@ export class GameServer {
       return;
     }
 
+    // attack players in any adjacent tile
     let target = null;
     for (const [, p] of this.players) {
       if (p.id === attacker.id) continue;
@@ -1176,8 +1138,7 @@ export class GameServer {
       const tTy = Math.floor(p.py / TILE_SIZE);
       const dx = Math.abs(tTx - aTx);
       const dy = Math.abs(tTy - aTy);
-      const inFront = facingRight ? (tTx > aTx) : (tTx < aTx);
-      if (dx <= 1 && dy <= 1 && inFront) {
+      if (dx <= 1 && dy <= 1) {
         target = p;
         break;
       }
